@@ -498,8 +498,11 @@ func (d *MyDecimal) FromString(str []byte) error {
 		fmt.Println("err1:", err)
 		fmt.Println("exponent", exponent)
 		if err != ErrOverflow {
+			fmt.Printf("d %#v", d)
 			shiftErr := d.Shift(int(exponent))
 			fmt.Println("shifterr", shiftErr)
+			fmt.Println(string(str))
+			fmt.Println(string(str[endIdx+1:]))
 			if shiftErr != nil {
 				if shiftErr == ErrOverflow {
 					negative := d.negative
