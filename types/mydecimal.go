@@ -14,6 +14,7 @@
 package types
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 
@@ -387,6 +388,7 @@ func (d *MyDecimal) ToString() (str []byte) {
 
 // FromString parses decimal from string.
 func (d *MyDecimal) FromString(str []byte) error {
+	fmt.Println("_______TESTST_______")
 	for i := 0; i < len(str); i++ {
 		if !isSpace(str[i]) {
 			str = str[i:]
@@ -395,7 +397,6 @@ func (d *MyDecimal) FromString(str []byte) error {
 	}
 	if len(str) == 0 {
 		*d = zeroMyDecimal
-		return ErrBadNumber
 	}
 	switch str[0] {
 	case '-':
@@ -494,8 +495,11 @@ func (d *MyDecimal) FromString(str []byte) error {
 			*d = zeroMyDecimal
 			err = ErrTruncated
 		}
+		fmt.Println("err1:", err)
+		fmt.Println("exponent", exponent)
 		if err != ErrOverflow {
 			shiftErr := d.Shift(int(exponent))
+			fmt.Println("shifterr", shiftErr)
 			if shiftErr != nil {
 				if shiftErr == ErrOverflow {
 					negative := d.negative
@@ -517,6 +521,7 @@ func (d *MyDecimal) FromString(str []byte) error {
 		d.negative = false
 	}
 	d.resultFrac = d.digitsFrac
+	fmt.Println("_______TESTEND_______")
 	return err
 }
 
