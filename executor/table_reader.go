@@ -16,6 +16,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/util/bloom"
 	"sort"
 
 	"github.com/opentracing/opentracing-go"
@@ -87,6 +88,9 @@ type TableReaderExecutor struct {
 	virtualColumnIndex []int
 	// virtualColumnRetFieldTypes records the RetFieldTypes of virtual columns.
 	virtualColumnRetFieldTypes []*types.FieldType
+
+	bloomFilter *bloom.Filter
+	joinKeyIdx  []int64
 }
 
 // Open initialzes necessary variables for using this executor.
