@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/expression"
 	plannercore "github.com/pingcap/tidb/planner/core"
+	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/bitmap"
 	"github.com/pingcap/tidb/util/chunk"
@@ -50,6 +51,8 @@ type HashJoinExec struct {
 	outerFilter       expression.CNFExprs
 	probeKeys         []*expression.Column
 	buildKeys         []*expression.Column
+	probeTypes        []*types.FieldType
+	buildTypes        []*types.FieldType
 
 	// concurrency is the number of partition, build and join workers.
 	concurrency   uint
@@ -161,6 +164,13 @@ func (e *HashJoinExec) Open(ctx context.Context) error {
 	e.closeCh = make(chan struct{})
 	e.finished.Store(false)
 	e.joinWorkerWaitGroup = sync.WaitGroup{}
+
+	if e.probeTypes == nil {
+		e.probeTypes = retTypes(e.probeSideExec)
+	}
+	if e.buildTypes == nil {
+		e.buildTypes = retTypes(e.buildSideExec)
+	}
 	return nil
 }
 
@@ -437,7 +447,7 @@ func (e *HashJoinExec) runJoinWorker(workerID uint, probeKeyColIdx []int) {
 		dest: e.probeResultChs[workerID],
 	}
 	hCtx := &hashContext{
-		allTypes:  retTypes(e.probeSideExec),
+		allTypes:  e.probeTypes,
 		keyColIdx: probeKeyColIdx,
 	}
 	for ok := true; ok; {
@@ -706,9 +716,8 @@ func (e *HashJoinExec) buildHashTableForList(buildSideResultCh <-chan *chunk.Chu
 	for i := range e.buildKeys {
 		buildKeyColIdx[i] = e.buildKeys[i].Index
 	}
-	allTypes := e.buildSideExec.base().retFieldTypes
 	hCtx := &hashContext{
-		allTypes:  allTypes,
+		allTypes:  e.buildTypes,
 		keyColIdx: buildKeyColIdx,
 	}
 	var err error
