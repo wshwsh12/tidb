@@ -737,7 +737,9 @@ func (e *HashJoinExec) buildHashTableForList(buildSideResultCh <-chan *chunk.Chu
 		}
 		if !e.useOuterToBuild {
 			err = e.rowContainer.PutChunk(chk)
-			e.PutChunkToBloom(hCtx)
+			if e.bloomFilter != nil {
+				e.PutChunkToBloom(hCtx)
+			}
 		} else {
 			var bitMap = bitmap.NewConcurrentBitmap(chk.NumRows())
 			e.outerMatchedStatus = append(e.outerMatchedStatus, bitMap)
