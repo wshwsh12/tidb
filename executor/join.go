@@ -86,7 +86,8 @@ type HashJoinExec struct {
 	joinWorkerWaitGroup sync.WaitGroup
 	finished            atomic.Value
 
-	bloomFilter *bloom.Filter
+	bloomFilter  *bloom.Filter
+	bloomFilters []*bloom.Filter
 }
 
 // probeChkResource stores the result of the join probe side fetch worker,

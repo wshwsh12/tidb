@@ -1119,13 +1119,15 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 	}
 	if e.joinType == plannercore.InnerJoin {
 		if probeExec, ok := e.probeSideExec.(*TableReaderExecutor); ok {
-			bl, _ := bloom.NewFilter(10000000 / 64)
-			probeExec.bloomFilter = bl
+			bl, _ := bloom.NewFilter(10)
 			e.bloomFilter = bl
-			probeExec.joinKeyIdx = make([]int64, len(e.probeKeys))
+			e.bloomFilters = append(e.bloomFilters, bl)
+			probeExec.bloomFilter = append(probeExec.bloomFilter, bl)
+			joinKeyIdx := make([]int64, len(e.probeKeys))
 			for i := range e.probeKeys {
-				probeExec.joinKeyIdx[i] = int64(e.probeKeys[i].Index)
+				joinKeyIdx[i] = int64(e.probeKeys[i].Index)
 			}
+			probeExec.joinKeyIdx = append(probeExec.joinKeyIdx, joinKeyIdx)
 		}
 	}
 	childrenUsedSchema := markChildrenUsedCols(v.Schema(), v.Children()[0].Schema(), v.Children()[1].Schema())

@@ -90,8 +90,8 @@ type TableReaderExecutor struct {
 	// virtualColumnRetFieldTypes records the RetFieldTypes of virtual columns.
 	virtualColumnRetFieldTypes []*types.FieldType
 
-	bloomFilter *bloom.Filter
-	joinKeyIdx  []int64
+	bloomFilter []*bloom.Filter
+	joinKeyIdx  [][]int64
 }
 
 // Open initialzes necessary variables for using this executor.
@@ -113,12 +113,14 @@ func (e *TableReaderExecutor) Open(ctx context.Context) error {
 		}
 	}
 	if e.bloomFilter != nil {
-		bl := &tipb.BloomFilter{BitSet: e.bloomFilter.BitSet, ColIdx: e.joinKeyIdx}
 		exec := e.dagPB.Executors[len(e.dagPB.Executors)-1]
 		if exec.Selection != nil {
-			exec.Selection.Bloom = bl
+			for i := range e.bloomFilter {
+				exec.Selection.Bloom = append(exec.Selection.Bloom, &tipb.BloomFilter{BitSet: e.bloomFilter[i].BitSet, ColIdx: e.joinKeyIdx[i]})
+			}
 		} else {
-			exec.Selection = &tipb.Selection{Bloom: bl}
+			// TODO: (Shenghui) Something wrong.
+			// exec.Selection = &tipb.Selection{Bloom: bl}
 			//		e.dagPB.Executors = append(e.dagPB.Executors, &tipb.Executor{Selection: &tipb.Selection{Bloom: bl}})
 		}
 	}
