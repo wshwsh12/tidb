@@ -115,7 +115,12 @@ func (e *TableReaderExecutor) Open(ctx context.Context) error {
 	if e.bloomFilters != nil {
 		exec := e.dagPB.Executors[len(e.dagPB.Executors)-1]
 		if exec.Selection != nil {
+			e.bloomFilters = e.bloomFilters[0:100]
+			e.joinKeyIdx = e.joinKeyIdx[0:100]
 			for i := range e.bloomFilters {
+				if e.bloomFilters[i] == nil {
+					break
+				}
 				exec.Selection.Bloom = append(exec.Selection.Bloom, &tipb.BloomFilter{BitSet: e.bloomFilters[i].BitSet, ColIdx: e.joinKeyIdx[i]})
 			}
 		} else {

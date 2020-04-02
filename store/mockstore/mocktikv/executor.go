@@ -500,7 +500,7 @@ func (e *selectionExec) Next(ctx context.Context) (value [][]byte, err error) {
 
 		if e.bloomFilter != nil {
 			for i := range e.bloomFilter {
-				match = evalBoolForBloom(e.evalCtx.sc, e.bloomFilter[i], e.joinKeyIdx[i], e.row)
+				match = match && evalBoolForBloom(e.evalCtx.sc, e.bloomFilter[i], e.joinKeyIdx[i], e.row)
 			}
 		}
 		if err != nil {
