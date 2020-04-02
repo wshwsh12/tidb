@@ -1121,13 +1121,30 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 		if probeExec, ok := e.probeSideExec.(*TableReaderExecutor); ok {
 			bl, _ := bloom.NewFilter(10)
 			e.bloomFilter = bl
+			e.bloomFilters = make([]*bloom.Filter, 0, 100)
+			e.joinKeysForMulti = make([][]int64, 0, 100)
+			probeExec.bloomFilters = e.bloomFilters
+			probeExec.joinKeyIdx = e.joinKeysForMulti
+
 			e.bloomFilters = append(e.bloomFilters, bl)
-			probeExec.bloomFilter = append(probeExec.bloomFilter, bl)
 			joinKeyIdx := make([]int64, len(e.probeKeys))
 			for i := range e.probeKeys {
 				joinKeyIdx[i] = int64(e.probeKeys[i].Index)
 			}
-			probeExec.joinKeyIdx = append(probeExec.joinKeyIdx, joinKeyIdx)
+			e.joinKeysForMulti = append(e.joinKeysForMulti, joinKeyIdx)
+
+			e.indexChange = make([]int64, e.Schema().Len())
+			for i := 0; i < len(e.indexChange); i++ {
+				e.indexChange[i] = -1
+			}
+
+			for _, col := range e.probeSideExec.Schema().Columns {
+				for _, col2 := range e.Schema().Columns {
+					if col.UniqueID == col2.UniqueID {
+						e.indexChange[col2.Index] = int64(col.Index)
+					}
+				}
+			}
 		}
 	}
 	childrenUsedSchema := markChildrenUsedCols(v.Schema(), v.Children()[0].Schema(), v.Children()[1].Schema())
