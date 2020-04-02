@@ -1138,10 +1138,45 @@ func (b *executorBuilder) buildHashJoin(v *plannercore.PhysicalHashJoin) Executo
 				e.indexChange[i] = -1
 			}
 
-			for _, col := range e.probeSideExec.Schema().Columns {
-				for _, col2 := range e.Schema().Columns {
-					if col.UniqueID == col2.UniqueID {
-						e.indexChange[col2.Index] = int64(col.Index)
+			for i, col := range e.probeSideExec.Schema().Columns {
+				for j, col2 := range e.Schema().Columns {
+					if col.String() == col2.String() {
+						e.indexChange[j] = int64(i)
+					}
+				}
+			}
+		}
+		if probeExec, ok := e.probeSideExec.(*HashJoinExec); ok {
+			var canPushBfInThisJoin = true
+
+			e.bloomFilters = probeExec.bloomFilters
+			e.joinKeysForMulti = probeExec.joinKeysForMulti
+
+			joinKeyIdx := make([]int64, len(e.probeKeys))
+			for i := range e.probeKeys {
+				if probeExec.indexChange[e.probeKeys[i].Index] == -1 {
+					canPushBfInThisJoin = false
+					break
+				}
+				joinKeyIdx[i] = probeExec.indexChange[e.probeKeys[i].Index]
+			}
+
+			if canPushBfInThisJoin {
+				bl, _ := bloom.NewFilter(10)
+				e.bloomFilter = bl
+				e.bloomFilters = append(e.bloomFilters, bl)
+				e.joinKeysForMulti = append(e.joinKeysForMulti, joinKeyIdx)
+			}
+
+			e.indexChange = make([]int64, e.Schema().Len())
+			for i := 0; i < len(e.indexChange); i++ {
+				e.indexChange[i] = -1
+			}
+
+			for i, col := range e.probeSideExec.Schema().Columns {
+				for j, col2 := range e.Schema().Columns {
+					if col.String() == col2.String() {
+						e.indexChange[j] = probeExec.indexChange[i]
 					}
 				}
 			}
