@@ -26,6 +26,18 @@ func NewFilter(length int) (*Filter, error) {
 	}, nil
 }
 
+// Init reset the length
+func (bf *Filter) Init(length int) {
+	if length == 0 {
+		length = 1000
+	}
+	bitset := make([]uint64, length)
+	bits := uint64(64)
+	bf.BitSet = bitset
+	bf.length = bits * uint64(length)
+	bf.unitSize = bits
+}
+
 // NewFilterBySlice create a bloom filter by the given slice
 func NewFilterBySlice(bs []uint64) (*Filter, error) {
 	if len(bs) == 0 {
