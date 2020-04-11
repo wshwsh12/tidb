@@ -15,7 +15,7 @@ type Filter struct {
 // NewFilter returns a filter with a given size
 func NewFilter(length int) (*Filter, error) {
 	if length <= 0 {
-		return nil, fmt.Errorf("length is not positive")
+		length = 10000
 	}
 	bitset := make([]uint64, length)
 	bits := uint64(64)
