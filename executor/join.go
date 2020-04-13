@@ -90,6 +90,7 @@ type HashJoinExec struct {
 	bloomFilters     []*bloom.Filter
 	joinKeysForMulti [][]int64
 	indexChange      []int64
+	probeIsOpen      bool
 }
 
 // probeChkResource stores the result of the join probe side fetch worker,
@@ -153,8 +154,14 @@ func (e *HashJoinExec) Close() error {
 
 // Open implements the Executor Open interface.
 func (e *HashJoinExec) Open(ctx context.Context) error {
-	if err := e.buildSideExec.Open(ctx); err != nil {
-		return err
+	if e.bloomFilter != nil {
+		if err := e.buildSideExec.Open(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := e.baseExecutor.Open(ctx); err != nil {
+			return err
+		}
 	}
 
 	e.prepared = false
@@ -707,9 +714,11 @@ func (e *HashJoinExec) fetchAndBuildHashTable(ctx context.Context) {
 		}
 	}
 
-	if err := e.probeSideExec.Open(ctx); err != nil {
-		e.buildFinished <- errors.Trace(err)
-		close(doneCh)
+	if e.bloomFilter != nil {
+		if err := e.probeSideExec.Open(ctx); err != nil {
+			e.buildFinished <- errors.Trace(err)
+			close(doneCh)
+		}
 	}
 }
 
