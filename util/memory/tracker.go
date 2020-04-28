@@ -218,9 +218,38 @@ func (t *Tracker) Consume(bytes int64) {
 		rootExceed.actionMu.Lock()
 		defer rootExceed.actionMu.Unlock()
 		if rootExceed.actionMu.actionOnExceed != nil {
-			rootExceed.actionMu.actionOnExceed.Action(rootExceed)
+			rootExceed.actionMu.actionOnExceed.Action(rootExceed, t)
 		}
 	}
+}
+
+// Consume is used to consume a memory usage. "bytes" can be a negative value,
+// which means this is a memory release operation. When memory usage of a tracker
+// exceeds its bytesLimit, the tracker calls its action, so does each of its ancestors.
+func (t *Tracker) ConsumeWithoutOOMCheck(bytes int64) {
+	for tracker := t; tracker != nil; tracker = tracker.parent {
+		atomic.AddInt64(&tracker.bytesConsumed, bytes)
+		for {
+			maxNow := atomic.LoadInt64(&tracker.maxConsumed)
+			consumed := atomic.LoadInt64(&tracker.bytesConsumed)
+			if consumed > maxNow && !atomic.CompareAndSwapInt64(&tracker.maxConsumed, maxNow, consumed) {
+				continue
+			}
+			break
+		}
+	}
+}
+
+// Consume is used to consume a memory usage. "bytes" can be a negative value,
+// which means this is a memory release operation. When memory usage of a tracker
+// exceeds its bytesLimit, the tracker calls its action, so does each of its ancestors.
+func (t *Tracker) CheckOOM() bool {
+	for tracker := t; tracker != nil; tracker = tracker.parent {
+		if atomic.LoadInt64(&tracker.bytesConsumed) >= tracker.bytesLimit && tracker.bytesLimit > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // BytesConsumed returns the consumed memory usage value in bytes.

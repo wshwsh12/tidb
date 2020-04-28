@@ -16,8 +16,12 @@ package executor
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
+	"github.com/pingcap/parser/terror"
 	"sort"
+	"sync"
+	"sync/atomic"
 
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/expression"
@@ -62,8 +66,10 @@ type SortExec struct {
 	// multiWayMerge uses multi-way merge for spill disk.
 	// The multi-way merge algorithm can refer to https://en.wikipedia.org/wiki/K-way_merge_algorithm
 	multiWayMerge *multiWayMerge
-	// spillAction save the Action for spill disk.
-	spillAction *chunk.SpillDiskAction
+	// sortAndSpillAction save the Action for spill disk.
+	sortAndSpillAction *SortAndSpillDiskAction
+	//
+	m sync.Mutex
 }
 
 // Close implements the Executor Close interface.
@@ -92,7 +98,7 @@ func (e *SortExec) Close() error {
 	e.memTracker = nil
 	e.diskTracker = nil
 	e.multiWayMerge = nil
-	e.spillAction = nil
+	e.sortAndSpillAction = nil
 	return e.children[0].Close()
 }
 
@@ -165,10 +171,23 @@ func (e *SortExec) Next(ctx context.Context, req *chunk.Chunk) error {
 }
 
 func (e *SortExec) generatePartition() {
+	e.m.Lock()
+	defer e.m.Unlock()
 	e.initPointers()
 	sort.Slice(e.rowPtrs, e.keyColumnsLess)
 	e.partitionList = append(e.partitionList, e.rowChunks)
 	e.partitionRowPtrs = append(e.partitionRowPtrs, e.rowPtrs)
+}
+
+func (e *SortExec) checkSpillAndCreateNewPartition() {
+	if e.rowChunks.AlreadySpilled() {
+		e.rowChunks = chunk.NewRowContainer(retTypes(e), e.maxChunkSize)
+		e.rowChunks.GetMemTracker().AttachTo(e.memTracker)
+		e.rowChunks.GetMemTracker().SetLabel(rowChunksLabel)
+		e.sortAndSpillAction.ResetOnceAndSetRowContainer(e.rowChunks)
+		e.rowChunks.GetDiskTracker().AttachTo(e.diskTracker)
+		e.rowChunks.GetDiskTracker().SetLabel(rowChunksLabel)
+	}
 }
 
 type partitionPointer struct {
@@ -241,14 +260,9 @@ func (e *SortExec) fetchRowChunks(ctx context.Context) error {
 	e.rowChunks = chunk.NewRowContainer(fields, e.maxChunkSize)
 	e.rowChunks.GetMemTracker().AttachTo(e.memTracker)
 	e.rowChunks.GetMemTracker().SetLabel(rowChunksLabel)
-	var onExceededCallback func(rowContainer *chunk.RowContainer)
 	if config.GetGlobalConfig().OOMUseTmpStorage {
-		e.spillAction = e.rowChunks.ActionSpill()
-		e.ctx.GetSessionVars().StmtCtx.MemTracker.FallbackOldAndSetNewAction(e.spillAction)
-		onExceededCallback = func(rowContainer *chunk.RowContainer) {
-			e.generatePartition()
-		}
-		e.rowChunks.SetOnExceededCallback(onExceededCallback)
+		e.sortAndSpillAction = &SortAndSpillDiskAction{e.rowChunks.ActionSpill(), sync.Mutex{}, e, 1}
+		e.ctx.GetSessionVars().StmtCtx.MemTracker.FallbackOldAndSetNewAction(e.sortAndSpillAction)
 		e.rowChunks.GetDiskTracker().AttachTo(e.diskTracker)
 		e.rowChunks.GetDiskTracker().SetLabel(rowChunksLabel)
 	}
@@ -262,34 +276,32 @@ func (e *SortExec) fetchRowChunks(ctx context.Context) error {
 		if rowCount == 0 {
 			break
 		}
-		if err := e.rowChunks.Add(chk); err != nil {
-			return err
-		}
-		if e.rowChunks.AlreadySpilled() {
-			e.rowChunks = chunk.NewRowContainer(retTypes(e), e.maxChunkSize)
-			e.rowChunks.GetMemTracker().AttachTo(e.memTracker)
-			e.rowChunks.GetMemTracker().SetLabel(rowChunksLabel)
-			e.rowChunks.SetOnExceededCallback(onExceededCallback)
-			e.spillAction.ResetOnceAndSetRowContainer(e.rowChunks)
-			e.rowChunks.GetDiskTracker().AttachTo(e.diskTracker)
-			e.rowChunks.GetDiskTracker().SetLabel(rowChunksLabel)
+		for err := e.rowChunks.Add(chk); err != nil; {
+			if terror.ErrorEqual(err, errors.New("The RowContainer is ReadOnly")) {
+				err = e.rowChunks.Add(chk)
+			} else {
+				return err
+			}
 		}
 	}
 	if e.rowChunks.NumRow() > 0 {
+		e.sortAndSpillAction.m.Lock()
+		atomic.StoreUint32(&e.sortAndSpillAction.needSortAndCreatePartition, 0)
 		e.generatePartition()
+		e.sortAndSpillAction.m.Unlock()
 	}
 	return nil
 }
 
 func (e *SortExec) initPointers() {
-	e.rowPtrs = make([]chunk.RowPtr, 0, e.rowChunks.NumRow())
-	for chkIdx := 0; chkIdx < e.rowChunks.NumChunks(); chkIdx++ {
-		rowChk := e.rowChunks.GetChunk(chkIdx)
+	e.rowPtrs = make([]chunk.RowPtr, 0, e.rowChunks.GetList().Len())
+	for chkIdx := 0; chkIdx < e.rowChunks.GetList().NumChunks(); chkIdx++ {
+		rowChk := e.rowChunks.GetList().GetChunk(chkIdx)
 		for rowIdx := 0; rowIdx < rowChk.NumRows(); rowIdx++ {
 			e.rowPtrs = append(e.rowPtrs, chunk.RowPtr{ChkIdx: uint32(chkIdx), RowIdx: uint32(rowIdx)})
 		}
 	}
-	e.memTracker.Consume(int64(8 * cap(e.rowPtrs)))
+	e.memTracker.ConsumeWithoutOOMCheck(int64(8 * cap(e.rowPtrs)))
 }
 
 func (e *SortExec) initCompareFuncs() {
@@ -329,6 +341,58 @@ func (e *SortExec) keyColumnsLess(i, j int) bool {
 	rowI := e.rowChunks.GetList().GetRow(e.rowPtrs[i])
 	rowJ := e.rowChunks.GetList().GetRow(e.rowPtrs[j])
 	return e.lessRow(rowI, rowJ)
+}
+
+// SortAndSpillDiskAction implements memory.ActionOnExceed for chunk.List. If
+// the memory quota of a query is exceeded, SortAndSpillDiskAction.Action is
+// triggered.
+type SortAndSpillDiskAction struct {
+	*chunk.SpillDiskAction
+	m                          sync.Mutex
+	exec                       *SortExec
+	needSortAndCreatePartition uint32
+}
+
+// Action sends a signal to trigger sort and spillToDisk method of RowContainer
+// and if it is already triggered before, call its fallbackAction.
+func (a *SortAndSpillDiskAction) Action(t *memory.Tracker, trigger *memory.Tracker) {
+	defer func() {
+		if pan := recover(); pan != nil {
+			a.SpillDiskAction.GetRowContainer().OOM()
+			a.m.Unlock()
+			panic(pan)
+		}
+	}()
+	a.m.Lock()
+	if a.SpillDiskAction.GetRowContainer().AlreadySpilledSafe() ||
+		atomic.LoadUint32(&a.needSortAndCreatePartition) == 0 ||
+		a.GetRowContainer().NumRow() == 0 {
+		a.SpillDiskAction.Action(t, trigger)
+		a.m.Unlock()
+	} else {
+		a.SpillDiskAction.GetRowContainer().WriteFinish()
+		a.exec.generatePartition()
+		a.SpillDiskAction.Action(t, trigger)
+		if trigger.CheckOOM() {
+			a.SpillDiskAction.Action(t, trigger)
+		}
+		a.m.Unlock()
+		a.exec.checkSpillAndCreateNewPartition()
+	}
+}
+
+// ResetOnceAndSetRowContainer resets the spill action and sets the RowContainer for the SortAndSpillDiskAction.
+func (a *SortAndSpillDiskAction) ResetOnceAndSetRowContainer(c *chunk.RowContainer) {
+	a.m.Lock()
+	defer a.m.Unlock()
+	a.SpillDiskAction.ResetOnceAndSetRowContainer(c)
+}
+
+// ResetOnce resets the spill action so that it can be triggered next time.
+func (a *SortAndSpillDiskAction) ResetOnce() {
+	a.m.Lock()
+	defer a.m.Unlock()
+	a.SpillDiskAction.ResetOnce()
 }
 
 // TopNExec implements a Top-N algorithm and it is built from a SELECT statement with ORDER BY and LIMIT.

@@ -97,17 +97,14 @@ func (r *rowContainerTestSuite) TestSpillAction(c *check.C) {
 	tracker.FallbackOldAndSetNewAction(rc.ActionSpill())
 
 	c.Assert(atomic.LoadUint32(&rc.spilled), check.Equals, uint32(0))
-	c.Assert(atomic.LoadUint32(&rc.exceeded), check.Equals, uint32(0))
 	err = rc.Add(chk)
 	c.Assert(err, check.IsNil)
 	c.Assert(atomic.LoadUint32(&rc.spilled), check.Equals, uint32(0))
-	c.Assert(atomic.LoadUint32(&rc.exceeded), check.Equals, uint32(0))
 	c.Assert(rc.GetMemTracker().BytesConsumed(), check.Equals, chk.MemoryUsage())
 	// The following line is erroneous, since chk is already handled by rc, Add it again causes duplicated memory usage account.
 	// It is only for test of spill, do not double-add a chunk elsewhere.
 	err = rc.Add(chk)
 	c.Assert(err, check.IsNil)
-	c.Assert(atomic.LoadUint32(&rc.exceeded), check.Equals, uint32(1))
 	c.Assert(atomic.LoadUint32(&rc.spilled), check.Equals, uint32(1))
 	err = rc.Reset()
 	c.Assert(err, check.IsNil)

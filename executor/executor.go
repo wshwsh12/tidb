@@ -110,7 +110,7 @@ type globalPanicOnExceed struct {
 func (a *globalPanicOnExceed) SetLogHook(hook func(uint64)) {}
 
 // Action panics when storage usage exceeds storage quota.
-func (a *globalPanicOnExceed) Action(t *memory.Tracker) {
+func (a *globalPanicOnExceed) Action(t *memory.Tracker, trigger *memory.Tracker) {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 	panic(globalPanicStorageExceed)
