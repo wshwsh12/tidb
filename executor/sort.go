@@ -62,14 +62,14 @@ type SortExec struct {
 	partitionList []*chunk.RowContainer
 	// partitionRowPtrs store the sorted RowPtrs for each row for partitions.
 	partitionRowPtrs [][]chunk.RowPtr
+	// m guarantee generating partition atomic.
+	m sync.Mutex
 
 	// multiWayMerge uses multi-way merge for spill disk.
 	// The multi-way merge algorithm can refer to https://en.wikipedia.org/wiki/K-way_merge_algorithm
 	multiWayMerge *multiWayMerge
-	// sortAndSpillAction save the Action for spill disk.
+	// sortAndSpillAction save the Action for sort and spill disk.
 	sortAndSpillAction *SortAndSpillDiskAction
-	//
-	m sync.Mutex
 }
 
 // Close implements the Executor Close interface.
@@ -182,7 +182,7 @@ func (e *SortExec) generatePartition() {
 func (e *SortExec) checkSpillAndCreateNewPartition() {
 	if e.rowChunks.AlreadySpilled() {
 		e.rowChunks = chunk.NewRowContainer(retTypes(e), e.maxChunkSize)
-		e.rowChunks.GetMemTracker().AttachTo(e.memTracker)
+		e.rowChunks.GetMemTracker().EmptyTrackerAttachTo(e.memTracker)
 		e.rowChunks.GetMemTracker().SetLabel(rowChunksLabel)
 		e.sortAndSpillAction.ResetOnceAndSetRowContainer(e.rowChunks)
 		e.rowChunks.GetDiskTracker().AttachTo(e.diskTracker)
@@ -373,9 +373,6 @@ func (a *SortAndSpillDiskAction) Action(t *memory.Tracker, trigger *memory.Track
 		a.SpillDiskAction.GetRowContainer().WriteFinish()
 		a.exec.generatePartition()
 		a.SpillDiskAction.Action(t, trigger)
-		if trigger.CheckOOM() {
-			a.SpillDiskAction.Action(t, trigger)
-		}
 		a.m.Unlock()
 		a.exec.checkSpillAndCreateNewPartition()
 	}

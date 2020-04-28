@@ -225,27 +225,23 @@ type SpillDiskAction struct {
 func (a *SpillDiskAction) Action(t *memory.Tracker, trigger *memory.Tracker) {
 	a.m.Lock()
 	defer a.m.Unlock()
-	if a.c.AlreadySpilledSafe() {
+	if a.c.AlreadySpilledSafe() ||
+		a.c.records.length == 0 {
 		if a.fallbackAction != nil {
 			a.fallbackAction.Action(t, trigger)
 		}
-	}
-	a.once.Do(func() {
-		logutil.BgLogger().Info("memory exceeds quota, spill to disk now.",
-			zap.Int64("consumed", t.BytesConsumed()), zap.Int64("quota", t.GetBytesLimit()))
-		if trigger != a.c.memTracker {
-			a.c.m.Lock()
-			defer a.c.m.Unlock()
-		}
-		if a.c.records.length == 0 {
-			if a.fallbackAction != nil {
-				a.fallbackAction.Action(t, trigger)
+	} else {
+		a.once.Do(func() {
+			logutil.BgLogger().Info("memory exceeds quota, spill to disk now.",
+				zap.Int64("consumed", t.BytesConsumed()), zap.Int64("quota", t.GetBytesLimit()))
+			if trigger != a.c.memTracker {
+				a.c.m.Lock()
+				defer a.c.m.Unlock()
 			}
-		} else {
 			a.c.spillToDisk()
 			atomic.StoreUint32(&a.c.spilled, 1)
-		}
-	})
+		})
+	}
 }
 
 // SetFallback sets the fallback action.

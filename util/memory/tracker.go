@@ -141,6 +141,17 @@ func (t *Tracker) AttachTo(parent *Tracker) {
 	t.parent.Consume(t.BytesConsumed())
 }
 
+// AttachTo attaches this memory tracker as a child to another Tracker. If it
+// already has a parent, this function will remove it from the old parent.
+// Its consumed memory usage is used to update all its ancestors.
+func (t *Tracker) EmptyTrackerAttachTo(parent *Tracker) {
+	parent.mu.Lock()
+	parent.mu.children = append(parent.mu.children, t)
+	parent.mu.Unlock()
+
+	t.parent = parent
+}
+
 // Detach de-attach the tracker child from its parent, then set its parent property as nil
 func (t *Tracker) Detach() {
 	if t.parent == nil {
