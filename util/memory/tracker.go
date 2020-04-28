@@ -141,9 +141,8 @@ func (t *Tracker) AttachTo(parent *Tracker) {
 	t.parent.Consume(t.BytesConsumed())
 }
 
-// AttachTo attaches this memory tracker as a child to another Tracker. If it
-// already has a parent, this function will remove it from the old parent.
-// Its consumed memory usage is used to update all its ancestors.
+// EmptyTrackerAttachTo attaches this memory tracker as a child to another Tracker.
+// The tracker must be empty.
 func (t *Tracker) EmptyTrackerAttachTo(parent *Tracker) {
 	parent.mu.Lock()
 	parent.mu.children = append(parent.mu.children, t)
@@ -234,9 +233,8 @@ func (t *Tracker) Consume(bytes int64) {
 	}
 }
 
-// Consume is used to consume a memory usage. "bytes" can be a negative value,
-// which means this is a memory release operation. When memory usage of a tracker
-// exceeds its bytesLimit, the tracker calls its action, so does each of its ancestors.
+// ConsumeWithoutOOMCheck is used to consume a memory usage. "bytes" can be a negative value,
+// which means this is a memory release operation.
 func (t *Tracker) ConsumeWithoutOOMCheck(bytes int64) {
 	for tracker := t; tracker != nil; tracker = tracker.parent {
 		atomic.AddInt64(&tracker.bytesConsumed, bytes)
@@ -249,18 +247,6 @@ func (t *Tracker) ConsumeWithoutOOMCheck(bytes int64) {
 			break
 		}
 	}
-}
-
-// Consume is used to consume a memory usage. "bytes" can be a negative value,
-// which means this is a memory release operation. When memory usage of a tracker
-// exceeds its bytesLimit, the tracker calls its action, so does each of its ancestors.
-func (t *Tracker) CheckOOM() bool {
-	for tracker := t; tracker != nil; tracker = tracker.parent {
-		if atomic.LoadInt64(&tracker.bytesConsumed) >= tracker.bytesLimit && tracker.bytesLimit > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // BytesConsumed returns the consumed memory usage value in bytes.

@@ -238,7 +238,10 @@ func (a *SpillDiskAction) Action(t *memory.Tracker, trigger *memory.Tracker) {
 				a.c.m.Lock()
 				defer a.c.m.Unlock()
 			}
-			a.c.spillToDisk()
+			err := a.c.spillToDisk()
+			if err != nil {
+				panic(err)
+			}
 			atomic.StoreUint32(&a.c.spilled, 1)
 		})
 	}
@@ -267,6 +270,7 @@ func (a *SpillDiskAction) ResetOnceAndSetRowContainer(c *RowContainer) {
 	a.c = c
 }
 
+// GetRowContainer gets the rowContainer for the SpillDiskAction
 func (a *SpillDiskAction) GetRowContainer() *RowContainer {
 	return a.c
 }

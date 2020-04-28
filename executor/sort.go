@@ -18,11 +18,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/pingcap/parser/terror"
 	"sort"
 	"sync"
 	"sync/atomic"
 
+	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/expression"
 	plannercore "github.com/pingcap/tidb/planner/core"
@@ -63,7 +63,7 @@ type SortExec struct {
 	// partitionRowPtrs store the sorted RowPtrs for each row for partitions.
 	partitionRowPtrs [][]chunk.RowPtr
 	// m guarantee generating partition atomic.
-	m sync.Mutex
+	m *sync.Mutex
 
 	// multiWayMerge uses multi-way merge for spill disk.
 	// The multi-way merge algorithm can refer to https://en.wikipedia.org/wiki/K-way_merge_algorithm
@@ -115,6 +115,7 @@ func (e *SortExec) Open(ctx context.Context) error {
 		e.diskTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.DiskTracker)
 	}
 	e.partitionList = e.partitionList[:0]
+	e.m = &sync.Mutex{}
 	return e.children[0].Open(ctx)
 }
 
