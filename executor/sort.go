@@ -285,11 +285,13 @@ func (e *SortExec) fetchRowChunks(ctx context.Context) error {
 			}
 		}
 	}
-	if e.rowChunks.NumRow() > 0 {
+	if e.sortAndSpillAction != nil {
 		e.sortAndSpillAction.m.Lock()
+		defer e.sortAndSpillAction.m.Unlock()
+	}
+	if e.rowChunks.NumRow() > 0 {
 		atomic.StoreUint32(&e.sortAndSpillAction.needSortAndCreatePartition, 0)
 		e.generatePartition()
-		e.sortAndSpillAction.m.Unlock()
 	}
 	return nil
 }
