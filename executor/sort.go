@@ -362,37 +362,26 @@ func (a *SortAndSpillDiskAction) Action(t *memory.Tracker, trigger *memory.Track
 	defer func() {
 		if pan := recover(); pan != nil {
 			a.SpillDiskAction.GetRowContainer().OOM()
-			a.m.Unlock()
 			panic(pan)
 		}
 	}()
 	a.m.Lock()
+	defer a.m.Unlock()
 	if a.SpillDiskAction.GetRowContainer().AlreadySpilledSafe() ||
 		atomic.LoadUint32(&a.needSortAndCreatePartition) == 0 ||
 		a.GetRowContainer().NumRow() == 0 {
 		a.SpillDiskAction.Action(t, trigger)
-		a.m.Unlock()
 	} else {
 		a.SpillDiskAction.GetRowContainer().WriteFinish()
 		a.exec.generatePartition()
 		a.SpillDiskAction.Action(t, trigger)
-		a.m.Unlock()
 		a.exec.checkSpillAndCreateNewPartition()
 	}
 }
 
 // ResetOnceAndSetRowContainer resets the spill action and sets the RowContainer for the SortAndSpillDiskAction.
 func (a *SortAndSpillDiskAction) ResetOnceAndSetRowContainer(c *chunk.RowContainer) {
-	a.m.Lock()
-	defer a.m.Unlock()
 	a.SpillDiskAction.ResetOnceAndSetRowContainer(c)
-}
-
-// ResetOnce resets the spill action so that it can be triggered next time.
-func (a *SortAndSpillDiskAction) ResetOnce() {
-	a.m.Lock()
-	defer a.m.Unlock()
-	a.SpillDiskAction.ResetOnce()
 }
 
 // TopNExec implements a Top-N algorithm and it is built from a SELECT statement with ORDER BY and LIMIT.
