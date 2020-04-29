@@ -233,19 +233,10 @@ func (t *Tracker) Consume(bytes int64) {
 	}
 }
 
-// ConsumeWithoutOOMCheck is used to consume a memory usage. "bytes" can be a negative value,
-// which means this is a memory release operation.
+// ConsumeWithoutOOMCheck is used to consume a memory usage without oom check. "bytes" must be a negative value or zero.
 func (t *Tracker) ConsumeWithoutOOMCheck(bytes int64) {
 	for tracker := t; tracker != nil; tracker = tracker.parent {
 		atomic.AddInt64(&tracker.bytesConsumed, bytes)
-		for {
-			maxNow := atomic.LoadInt64(&tracker.maxConsumed)
-			consumed := atomic.LoadInt64(&tracker.bytesConsumed)
-			if consumed > maxNow && !atomic.CompareAndSwapInt64(&tracker.maxConsumed, maxNow, consumed) {
-				continue
-			}
-			break
-		}
 	}
 }
 
