@@ -18,10 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
-	"sync"
-	"sync/atomic"
-
 	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/expression"
@@ -32,6 +28,8 @@ import (
 	"github.com/pingcap/tidb/util/disk"
 	"github.com/pingcap/tidb/util/memory"
 	"github.com/pingcap/tidb/util/stringutil"
+	"sort"
+	"sync"
 )
 
 var rowChunksLabel fmt.Stringer = stringutil.StringerStr("rowChunks")
@@ -173,8 +171,6 @@ func (e *SortExec) Next(ctx context.Context, req *chunk.Chunk) error {
 }
 
 func (e *SortExec) generatePartition() {
-	e.m.Lock()
-	defer e.m.Unlock()
 	e.initPointers()
 	sort.Slice(e.rowPtrs, e.keyColumnsLess)
 	e.partitionList = append(e.partitionList, e.rowChunks)
@@ -289,9 +285,9 @@ func (e *SortExec) fetchRowChunks(ctx context.Context) error {
 	if e.sortAndSpillAction != nil {
 		e.sortAndSpillAction.m.Lock()
 		defer e.sortAndSpillAction.m.Unlock()
+		e.sortAndSpillAction.needSortAndCreatePartition = 0
 	}
 	if e.rowChunks.NumRow() > 0 {
-		atomic.StoreUint32(&e.sortAndSpillAction.needSortAndCreatePartition, 0)
 		e.generatePartition()
 	}
 	return nil
@@ -369,7 +365,7 @@ func (a *SortAndSpillDiskAction) Action(t *memory.Tracker, trigger *memory.Track
 	a.m.Lock()
 	defer a.m.Unlock()
 	if a.SpillDiskAction.GetRowContainer().AlreadySpilledSafe() ||
-		atomic.LoadUint32(&a.needSortAndCreatePartition) == 0 ||
+		a.needSortAndCreatePartition == 0 ||
 		a.GetRowContainer().NumRow() == 0 {
 		a.SpillDiskAction.Action(t, trigger)
 	} else {
