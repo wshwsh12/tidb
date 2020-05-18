@@ -47,6 +47,7 @@ type Tracker struct {
 	actionMu struct {
 		sync.Mutex
 		actionOnExceed ActionOnExceed
+		doingOOMActon  uint32
 	}
 
 	label         fmt.Stringer // Label of this "Tracker".
@@ -141,16 +142,6 @@ func (t *Tracker) AttachTo(parent *Tracker) {
 	t.parent.Consume(t.BytesConsumed())
 }
 
-// EmptyTrackerAttachTo attaches this memory tracker as a child to another Tracker.
-// The tracker must be empty.
-func (t *Tracker) EmptyTrackerAttachTo(parent *Tracker) {
-	parent.mu.Lock()
-	parent.mu.children = append(parent.mu.children, t)
-	parent.mu.Unlock()
-
-	t.parent = parent
-}
-
 // Detach de-attach the tracker child from its parent, then set its parent property as nil
 func (t *Tracker) Detach() {
 	if t.parent == nil {
@@ -225,18 +216,16 @@ func (t *Tracker) Consume(bytes int64) {
 		}
 	}
 	if rootExceed != nil {
+		if atomic.LoadUint32(&rootExceed.actionMu.doingOOMActon) == 1 {
+			return
+		}
 		rootExceed.actionMu.Lock()
 		defer rootExceed.actionMu.Unlock()
+		atomic.StoreUint32(&rootExceed.actionMu.doingOOMActon, 1)
+		defer atomic.StoreUint32(&rootExceed.actionMu.doingOOMActon, 0)
 		if rootExceed.actionMu.actionOnExceed != nil {
 			rootExceed.actionMu.actionOnExceed.Action(rootExceed, t)
 		}
-	}
-}
-
-// ConsumeWithoutOOMCheck is used to consume a memory usage without oom check. "bytes" must be a negative value or zero.
-func (t *Tracker) ConsumeWithoutOOMCheck(bytes int64) {
-	for tracker := t; tracker != nil; tracker = tracker.parent {
-		atomic.AddInt64(&tracker.bytesConsumed, bytes)
 	}
 }
 

@@ -16,8 +16,8 @@ package executor
 import (
 	"container/heap"
 	"context"
-	"errors"
 	"fmt"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/expression"
@@ -33,6 +33,12 @@ import (
 )
 
 var rowChunksLabel fmt.Stringer = stringutil.StringerStr("rowChunks")
+
+const (
+	readWrite uint32 = iota
+	readOnly
+	alreadyOOM
+)
 
 // SortExec represents sorting executor.
 type SortExec struct {
@@ -180,7 +186,7 @@ func (e *SortExec) generatePartition() {
 func (e *SortExec) checkSpillAndCreateNewPartition() {
 	if e.rowChunks.AlreadySpilled() {
 		e.rowChunks = chunk.NewRowContainer(retTypes(e), e.maxChunkSize)
-		e.rowChunks.GetMemTracker().EmptyTrackerAttachTo(e.memTracker)
+		e.rowChunks.GetMemTracker().AttachTo(e.memTracker)
 		e.rowChunks.GetMemTracker().SetLabel(rowChunksLabel)
 		e.sortAndSpillAction.ResetOnceAndSetRowContainer(e.rowChunks)
 		e.rowChunks.GetDiskTracker().AttachTo(e.diskTracker)
@@ -301,7 +307,7 @@ func (e *SortExec) initPointers() {
 			e.rowPtrs = append(e.rowPtrs, chunk.RowPtr{ChkIdx: uint32(chkIdx), RowIdx: uint32(rowIdx)})
 		}
 	}
-	e.memTracker.ConsumeWithoutOOMCheck(int64(8 * cap(e.rowPtrs)))
+	e.memTracker.Consume(int64(8 * cap(e.rowPtrs)))
 }
 
 func (e *SortExec) initCompareFuncs() {
