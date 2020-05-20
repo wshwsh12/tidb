@@ -17,8 +17,6 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
-	"github.com/pingcap/errors"
-	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/expression"
 	plannercore "github.com/pingcap/tidb/planner/core"
@@ -30,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/util/stringutil"
 	"sort"
 	"sync"
+	"sync/atomic"
 )
 
 var rowChunksLabel fmt.Stringer = stringutil.StringerStr("rowChunks")
@@ -67,6 +66,8 @@ type SortExec struct {
 	partitionList []*chunk.RowContainer
 	// partitionRowPtrs store the sorted RowPtrs for each row for partitions.
 	partitionRowPtrs [][]chunk.RowPtr
+	// status
+	status uint32
 	// m guarantee generating partition atomic.
 	m *sync.Mutex
 
@@ -280,11 +281,24 @@ func (e *SortExec) fetchRowChunks(ctx context.Context) error {
 		if rowCount == 0 {
 			break
 		}
-		for err := e.rowChunks.Add(chk); err != nil; {
-			if terror.ErrorEqual(err, errors.New("The RowContainer is ReadOnly")) {
-				err = e.rowChunks.Add(chk)
-			} else {
-				return err
+		for {
+			switch atomic.LoadUint32(&e.status) {
+			case readWrite:
+				e.m.Lock()
+				if atomic.LoadUint32(&e.status) != readWrite {
+					e.m.Unlock()
+					continue
+				}
+				for err := e.rowChunks.Add(chk); err != nil; {
+					e.m.Unlock()
+					return err
+				}
+				e.m.Unlock()
+				break
+			case readOnly:
+				continue
+			case alreadyOOM:
+				break
 			}
 		}
 	}
@@ -362,12 +376,6 @@ type SortAndSpillDiskAction struct {
 // Action sends a signal to trigger sort and spillToDisk method of RowContainer
 // and if it is already triggered before, call its fallbackAction.
 func (a *SortAndSpillDiskAction) Action(t *memory.Tracker, trigger *memory.Tracker) {
-	defer func() {
-		if pan := recover(); pan != nil {
-			a.SpillDiskAction.GetRowContainer().OOM()
-			panic(pan)
-		}
-	}()
 	a.m.Lock()
 	defer a.m.Unlock()
 	if a.SpillDiskAction.GetRowContainer().AlreadySpilledSafe() ||
@@ -375,10 +383,26 @@ func (a *SortAndSpillDiskAction) Action(t *memory.Tracker, trigger *memory.Track
 		a.GetRowContainer().NumRow() == 0 {
 		a.SpillDiskAction.Action(t, trigger)
 	} else {
-		a.SpillDiskAction.GetRowContainer().WriteFinish()
+		if trigger != a.GetRowContainer().GetMemTracker() {
+			a.GetRowContainer().GetLock().Lock()
+			a.exec.m.Lock()
+			defer a.exec.m.Unlock()
+			defer a.GetRowContainer().GetLock().Unlock()
+		}
+		atomic.StoreUint32(&a.exec.status, readOnly)
+		defer func() {
+			if pan := recover(); pan != nil {
+				atomic.StoreUint32(&a.exec.status, alreadyOOM)
+				panic(pan)
+			}
+		}()
 		a.exec.generatePartition()
-		a.SpillDiskAction.Action(t, trigger)
+		err := a.GetRowContainer().SpillToDisk()
+		if err != nil {
+			panic(err)
+		}
 		a.exec.checkSpillAndCreateNewPartition()
+		atomic.StoreUint32(&a.exec.status, readWrite)
 	}
 }
 
