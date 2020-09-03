@@ -68,6 +68,10 @@ func (c *RowContainer) SpillToDisk() {
 	}
 	// c.actionSpill may be nil when testing SpillToDisk directly.
 	if c.actionSpill != nil {
+		if c.actionSpill.getStatus() == spilledYet {
+			// RowContainer has closed.
+			return
+		}
 		c.actionSpill.setStatus(spilling)
 		defer c.actionSpill.cond.Broadcast()
 		defer c.actionSpill.setStatus(spilledYet)
@@ -211,6 +215,9 @@ func (c *RowContainer) GetDiskTracker() *disk.Tracker {
 
 // Close close the RowContainer
 func (c *RowContainer) Close() (err error) {
+	if c.actionSpill != nil {
+		c.actionSpill.setStatus(spilledYet)
+	}
 	c.m.RLock()
 	defer c.m.RUnlock()
 	if c.alreadySpilled() {
