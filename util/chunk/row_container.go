@@ -74,6 +74,9 @@ func (c *RowContainer) SpillToDisk() {
 	}
 	var err error
 	N := c.m.records.NumChunks()
+	if N == 0 {
+		return
+	}
 	c.m.recordsInDisk = NewListInDisk(c.m.records.FieldTypes())
 	c.m.recordsInDisk.diskTracker.AttachTo(c.diskTracker)
 	for i := 0; i < N; i++ {
