@@ -19,7 +19,7 @@ require (
 	github.com/gorilla/mux v1.7.3
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.1-0.20190118093823-f849b5445de4
 	github.com/iancoleman/strcase v0.0.0-20191112232945-16388991a334
-	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
+	github.com/juju/errors v0.0.0-20200330140219-3fe23663418f
 	github.com/klauspost/cpuid v1.2.1
 	github.com/ngaut/pools v0.0.0-20180318154953-b7bc8c42aac7
 	github.com/ngaut/sync2 v0.0.0-20141008032647-7a24ed77b2ef
@@ -56,7 +56,7 @@ require (
 	go.uber.org/automaxprocs v1.2.0
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.16.0
-	golang.org/x/net v0.0.0-20200813134508-3edf25e44fcc
+	golang.org/x/net v0.0.0-20200904194848-62affa334b73
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
 	golang.org/x/sys v0.0.0-20200819171115-d785dc25833f
 	golang.org/x/text v0.3.3
@@ -68,3 +68,5 @@ require (
 )
 
 go 1.13
+
+replace github.com/ngaut/unistore => /home/wshwsh12/project/unistore

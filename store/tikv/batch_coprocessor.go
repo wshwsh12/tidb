@@ -118,7 +118,8 @@ func buildBatchCopTasks(bo *Backoffer, cache *RegionCache, ranges *copRanges, re
 		storeTaskMap := make(map[string]*batchCopTask)
 		needRetry := false
 		for _, task := range tasks {
-			rpcCtx, err := cache.GetTiFlashRPCContext(bo, task.region)
+			//	rpcCtx, err := cache.GetTiFlashRPCContext(bo, task.region)
+			rpcCtx, err := cache.GetTiKVRPCContext(bo, task.region, req.ReplicaRead, 0)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}

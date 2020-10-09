@@ -35,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tipb/go-tipb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/metadata"
 )
@@ -177,6 +178,8 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 		resp.Resp, err = c.usSvr.Coprocessor(ctx, req.Cop())
 	case tikvrpc.CmdCopStream:
 		resp.Resp, err = c.handleCopStream(ctx, req.Cop())
+	case tikvrpc.CmdBatchCop:
+		resp.Resp, err = c.handleBatchCop(ctx, req.BatchCop())
 	case tikvrpc.CmdMvccGetByKey:
 		resp.Resp, err = c.usSvr.MvccGetByKey(ctx, req.MvccGetByKey())
 	case tikvrpc.CmdMvccGetByStartTs:
@@ -214,6 +217,56 @@ func (c *RPCClient) handleCopStream(ctx context.Context, req *coprocessor.Reques
 	return &tikvrpc.CopStreamResponse{
 		Tikv_CoprocessorStreamClient: new(mockCopStreamClient),
 		Response:                     copResp,
+	}, nil
+}
+
+func (c *RPCClient) handleBatchCop(ctx context.Context, req *coprocessor.BatchRequest) (*tikvrpc.BatchCopStreamResponse, error) {
+	selectResp := new(tipb.SelectResponse)
+	for _, r := range req.Regions {
+		req1 := &coprocessor.Request{
+			Context:   req.Context,
+			Tp:        req.Tp,
+			Data:      req.Data,
+			StartTs:   req.StartTs,
+			Ranges:    r.Ranges,
+			SchemaVer: req.SchemaVer,
+		}
+		req1.Context.RegionId = r.RegionId
+		req1.Context.RegionEpoch = r.RegionEpoch
+		copResp, err := c.usSvr.Coprocessor(ctx, req1)
+		if err != nil {
+			return nil, err
+		}
+		resp := new(tipb.SelectResponse)
+		_ = resp.Unmarshal(copResp.Data)
+		selectResp.Chunks = append(selectResp.Chunks, resp.Chunks...)
+		selectResp.Warnings = append(selectResp.Warnings, resp.Warnings...)
+		selectResp.ExecutionSummaries = append(selectResp.ExecutionSummaries, resp.ExecutionSummaries...)
+		if resp.WarningCount != nil {
+			if selectResp.WarningCount != nil {
+				*selectResp.WarningCount += *resp.WarningCount
+			} else {
+				selectResp.WarningCount = resp.WarningCount
+			}
+		}
+		selectResp.Error = resp.Error
+		selectResp.OutputCounts = append(selectResp.OutputCounts, resp.OutputCounts...)
+		selectResp.Rows = append(selectResp.Rows, resp.Rows...)
+		if resp.Error != nil {
+			break
+		}
+	}
+
+	data, _ := selectResp.Marshal()
+	br := &coprocessor.BatchResponse{}
+	err := br.Data.Unmarshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tikvrpc.BatchCopStreamResponse{
+		Tikv_BatchCoprocessorClient: new(mockBatchCopStreamClient),
+		BatchResponse:               br,
 	}, nil
 }
 
@@ -322,5 +375,13 @@ type mockCopStreamClient struct {
 }
 
 func (mock *mockCopStreamClient) Recv() (*coprocessor.Response, error) {
+	return nil, io.EOF
+}
+
+type mockBatchCopStreamClient struct {
+	mockClientStream
+}
+
+func (mock *mockBatchCopStreamClient) Recv() (*coprocessor.BatchResponse, error) {
 	return nil, io.EOF
 }
