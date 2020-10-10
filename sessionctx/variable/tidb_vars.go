@@ -508,7 +508,7 @@ const (
 	DefTiDBHashJoinConcurrency         = ConcurrencyUnset
 	DefTiDBProjectionConcurrency       = ConcurrencyUnset
 	DefTiDBOptimizerSelectivityLevel   = 0
-	DefTiDBAllowBatchCop               = 2
+	DefTiDBAllowBatchCop               = 1
 	DefTiDBTxnMode                     = ""
 	DefTiDBRowFormatV1                 = 1
 	DefTiDBRowFormatV2                 = 2

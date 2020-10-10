@@ -352,7 +352,7 @@ func (b *batchCopIterator) handleTaskOnce(ctx context.Context, bo *Backoffer, ta
 		ScanDetail:     true,
 		TaskId:         b.req.TaskID,
 	})
-	req.StoreTp = kv.TiFlash
+	req.StoreTp = b.req.StoreType
 
 	logutil.BgLogger().Debug("send batch request to ", zap.String("req info", req.String()), zap.Int("cop task len", len(task.copTasks)))
 	resp, retry, cancel, err := sender.sendStreamReqToAddr(bo, task.copTasks, req, ReadTimeoutUltraLong)
