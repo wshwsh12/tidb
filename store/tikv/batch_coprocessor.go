@@ -118,8 +118,14 @@ func buildBatchCopTasks(bo *Backoffer, cache *RegionCache, ranges *copRanges, re
 		storeTaskMap := make(map[string]*batchCopTask)
 		needRetry := false
 		for _, task := range tasks {
-			//	rpcCtx, err := cache.GetTiFlashRPCContext(bo, task.region)
-			rpcCtx, err := cache.GetTiKVRPCContext(bo, task.region, req.ReplicaRead, 0)
+			var rpcCtx *RPCContext
+			var err error
+			switch req.StoreType {
+			case kv.TiKV:
+				rpcCtx, err = cache.GetTiKVRPCContext(bo, task.region, req.ReplicaRead, 0)
+			case kv.TiFlash:
+				rpcCtx, err = cache.GetTiFlashRPCContext(bo, task.region)
+			}
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -415,6 +421,7 @@ func (b *batchCopIterator) handleBatchCopResponse(bo *Backoffer, response *copro
 		detail: new(CopRuntimeStats),
 	}
 
+	resp.startKey = task.copTasks[0].task.ranges.at(0).StartKey
 	resp.detail.BackoffTime = time.Duration(bo.totalSleep) * time.Millisecond
 	resp.detail.BackoffSleep = make(map[string]time.Duration, len(bo.backoffTimes))
 	resp.detail.BackoffTimes = make(map[string]int, len(bo.backoffTimes))
