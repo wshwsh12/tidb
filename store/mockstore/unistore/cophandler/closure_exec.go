@@ -318,6 +318,7 @@ type closureExecutor struct {
 	processor closureProcessor
 
 	counts []int64
+	lockResolve bool
 }
 
 type closureProcessor interface {
