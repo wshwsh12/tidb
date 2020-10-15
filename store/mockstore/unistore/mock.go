@@ -19,23 +19,24 @@ import (
 
 	usconf "github.com/ngaut/unistore/config"
 	ussvr "github.com/ngaut/unistore/server"
+	"github.com/ngaut/unistore/tikv"
 	"github.com/pingcap/errors"
 	pd "github.com/tikv/pd/client"
 )
 
 // New creates a embed unistore client, pd client and cluster handler.
-func New(path string) (*RPCClient, pd.Client, *Cluster, error) {
+func New(path string) (*RPCClient, pd.Client, *Cluster, error, *tikv.Server) {
 	persistent := true
 	if path == "" {
 		var err error
 		if path, err = ioutil.TempDir("", "tidb-unistore-temp"); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, err, nil
 		}
 		persistent = false
 	}
 
 	if err := os.MkdirAll(path, 0777); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, err, nil
 	}
 
 	conf := usconf.DefaultConf
@@ -54,7 +55,7 @@ func New(path string) (*RPCClient, pd.Client, *Cluster, error) {
 
 	srv, rm, pd, err := ussvr.NewMock(&conf, 1)
 	if err != nil {
-		return nil, nil, nil, errors.Trace(err)
+		return nil, nil, nil, errors.Trace(err), nil
 	}
 
 	cluster := newCluster(rm)
@@ -67,5 +68,5 @@ func New(path string) (*RPCClient, pd.Client, *Cluster, error) {
 	}
 	pdClient := newPDClient(pd)
 
-	return client, pdClient, cluster, nil
+	return client, pdClient, cluster, nil, srv
 }

@@ -21,11 +21,13 @@ import (
 )
 
 func newUnistore(opts *mockOptions) (kv.Storage, error) {
-	client, pdClient, cluster, err := unistore.New(opts.path)
+	client, pdClient, cluster, err, svr := unistore.New(opts.path)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	opts.clusterInspector(cluster)
 
-	return tikv.NewTestTiKVStore(client, pdClient, opts.clientHijacker, opts.pdClientHijacker, opts.txnLocalLatches)
+	kvStore, err := tikv.NewTestTiKVStore(client, pdClient, opts.clientHijacker, opts.pdClientHijacker, opts.txnLocalLatches)
+	svr.KS = kvStore.(tikv.Storage)
+	return kvStore, err
 }
