@@ -15,7 +15,6 @@ package cgroup
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -303,11 +302,10 @@ func parseMountPointFromString(line string) (*mountPoint, error) {
 var CGroupInstance *cGroupSys
 
 func init() {
-	//	if InContainer() {
-	CGroupInstance = NewCGroupSys(
-		cGroupPath,
-		cGroupMountInfo,
-	)
-	//	}
-	fmt.Println(CGroupInstance.GetMemoryLimitInBytes())
+	if InContainer() {
+		CGroupInstance = NewCGroupSys(
+			cGroupPath,
+			cGroupMountInfo,
+		)
+	}
 }
