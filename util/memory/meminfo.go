@@ -14,12 +14,10 @@
 package memory
 
 import (
-	"io/ioutil"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/pingcap/tidb/util/sys/cgroup"
 	"github.com/shirou/gopsutil/mem"
 )
 
@@ -94,10 +92,7 @@ func MemTotalCGroup() (uint64, error) {
 	if time.Since(t) < 60*time.Second {
 		return mem, nil
 	}
-	mem, err := readUint(cGroupMemLimitPath)
-	if err != nil {
-		return mem, err
-	}
+	mem = cgroup.CGroupInstance.GetMemoryLimitInBytes()
 	memLimit.set(mem, time.Now())
 	return mem, nil
 }
@@ -108,16 +103,13 @@ func MemUsedCGroup() (uint64, error) {
 	if time.Since(t) < 500*time.Millisecond {
 		return mem, nil
 	}
-	mem, err := readUint(cGroupMemUsagePath)
-	if err != nil {
-		return mem, err
-	}
+	mem = cgroup.CGroupInstance.GetMemoryUsageInBytes()
 	memUsage.set(mem, time.Now())
 	return mem, nil
 }
 
 func init() {
-	if inContainer() {
+	if cgroup.InContainer() {
 		MemTotal = MemTotalCGroup
 		MemUsed = MemUsedCGroup
 	} else {
@@ -136,45 +128,4 @@ func init() {
 	_, err = MemUsed()
 	if err != nil {
 	}
-}
-
-func inContainer() bool {
-	v, err := ioutil.ReadFile(selfCGroupPath)
-	if err != nil {
-		return false
-	}
-	if strings.Contains(string(v), "docker") ||
-		strings.Contains(string(v), "kubepods") ||
-		strings.Contains(string(v), "containerd") {
-		return true
-	}
-	return false
-}
-
-// refer to https://github.com/containerd/cgroups/blob/318312a373405e5e91134d8063d04d59768a1bff/utils.go#L251
-func parseUint(s string, base, bitSize int) (uint64, error) {
-	v, err := strconv.ParseUint(s, base, bitSize)
-	if err != nil {
-		intValue, intErr := strconv.ParseInt(s, base, bitSize)
-		// 1. Handle negative values greater than MinInt64 (and)
-		// 2. Handle negative values lesser than MinInt64
-		if intErr == nil && intValue < 0 {
-			return 0, nil
-		} else if intErr != nil &&
-			intErr.(*strconv.NumError).Err == strconv.ErrRange &&
-			intValue < 0 {
-			return 0, nil
-		}
-		return 0, err
-	}
-	return v, nil
-}
-
-// refer to https://github.com/containerd/cgroups/blob/318312a373405e5e91134d8063d04d59768a1bff/utils.go#L243
-func readUint(path string) (uint64, error) {
-	v, err := ioutil.ReadFile(path)
-	if err != nil {
-		return 0, err
-	}
-	return parseUint(strings.TrimSpace(string(v)), 10, 64)
 }
