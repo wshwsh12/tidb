@@ -44,9 +44,9 @@ func (s *testCGroupSuite) TestParseMountPointFromLine(c *C) {
 
 	expectedMps := []mountPoint{
 		{
-			mountId:        1,
-			parentId:       0,
-			deviceId:       "252:0",
+			mountID:        1,
+			parentID:       0,
+			deviceID:       "252:0",
 			root:           "/",
 			mountPoint:     "/",
 			option:         []string{"rw", "noatime"},
@@ -56,9 +56,9 @@ func (s *testCGroupSuite) TestParseMountPointFromLine(c *C) {
 			superOptions:   []string{"rw", "errors=remount-ro", "data=ordered"},
 		},
 		{
-			mountId:        31,
-			parentId:       23,
-			deviceId:       "0:24",
+			mountID:        31,
+			parentID:       23,
+			deviceID:       "0:24",
 			root:           "/docker",
 			mountPoint:     "/sys/fs/cgroup/cpu",
 			option:         []string{"rw", "nosuid", "nodev", "noexec", "relatime"},
@@ -80,9 +80,9 @@ func (s *testCGroupSuite) TestParseMountPointFromLine(c *C) {
 
 func (s *testCGroupSuite) TestMountPointTranslate(c *C) {
 	mp := mountPoint{
-		mountId:        31,
-		parentId:       23,
-		deviceId:       "0:24",
+		mountID:        31,
+		parentID:       23,
+		deviceID:       "0:24",
 		root:           "/docker",
 		mountPoint:     "/sys/fs/cgroup/cpu",
 		option:         []string{"rw", "nosuid", "nodev", "noexec", "relatime"},

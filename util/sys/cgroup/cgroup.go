@@ -51,7 +51,7 @@ const (
 
 // SubSysFields
 const (
-	subSysFieldsId = iota
+	subSysFieldsID = iota
 	subSysFieldsSubSystems
 	subSysFieldsName
 
@@ -62,6 +62,7 @@ type cGroup struct {
 	path string
 }
 
+// NewCGroup create a new cGroup.
 func NewCGroup(path string) *cGroup {
 	return &cGroup{path: path}
 }
@@ -110,6 +111,7 @@ type cGroupSys struct {
 	cGroups map[string]*cGroup
 }
 
+// NewCGroupSys create a new cGroupSys
 func NewCGroupSys(cGroupPath string, mountInfoPath string) *cGroupSys {
 	subSystems := make(map[string]*cGroupSubSys)
 
@@ -165,9 +167,9 @@ func NewCGroupSys(cGroupPath string, mountInfoPath string) *cGroupSys {
 
 // MountInfoFieldPart1
 const (
-	MountInfoFieldPart1MountId = iota
-	MountInfoFieldPart1ParentId
-	MountInfoFieldPart1DeviceId
+	MountInfoFieldPart1MountID = iota
+	MountInfoFieldPart1ParentID
+	MountInfoFieldPart1DeviceID
 	MountInfoFieldPart1Root
 	MountInfoFieldPart1MountPoint
 	MountInfoFieldPart1Options
@@ -186,9 +188,9 @@ const (
 )
 
 type mountPoint struct {
-	mountId        uint64
-	parentId       uint64
-	deviceId       string
+	mountID        uint64
+	parentID       uint64
+	deviceID       string
 	root           string
 	mountPoint     string
 	option         []string
@@ -227,6 +229,7 @@ func (cgs *cGroupSys) GetMemoryUsageInBytes() uint64 {
 	return 0
 }
 
+// InContainer check whether the process is running in container.
 func InContainer() bool {
 	v, err := ioutil.ReadFile(cGroupPath)
 	if err != nil {
@@ -246,7 +249,7 @@ func parseSubSysFromString(line string) (*cGroupSubSys, error) {
 	if len(fields) != subSysFieldsCount {
 		return nil, errors.New("subsystem format invalid")
 	}
-	id, err := parseUint(fields[subSysFieldsId], 10, 64)
+	id, err := parseUint(fields[subSysFieldsID], 10, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -278,17 +281,17 @@ func parseMountPointFromString(line string) (*mountPoint, error) {
 	fsStart := sepPos + 1
 
 	mp := &mountPoint{}
-	mountId, err := parseUint(fields[MountInfoFieldPart1MountId], 10, 64)
+	mountID, err := parseUint(fields[MountInfoFieldPart1MountID], 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	parentId, err := parseUint(fields[MountInfoFieldPart1ParentId], 10, 64)
+	parentID, err := parseUint(fields[MountInfoFieldPart1ParentID], 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	mp.mountId = mountId
-	mp.parentId = parentId
-	mp.deviceId = fields[MountInfoFieldPart1DeviceId]
+	mp.mountID = mountID
+	mp.parentID = parentID
+	mp.deviceID = fields[MountInfoFieldPart1DeviceID]
 	mp.root = fields[MountInfoFieldPart1Root]
 	mp.mountPoint = fields[MountInfoFieldPart1MountPoint]
 	mp.option = strings.Split(fields[MountInfoFieldPart1Options], optionsSep)
@@ -299,6 +302,7 @@ func parseMountPointFromString(line string) (*mountPoint, error) {
 	return mp, nil
 }
 
+// CGroupInstance indicate the cGroup instance for the process.
 var CGroupInstance *cGroupSys
 
 func init() {
