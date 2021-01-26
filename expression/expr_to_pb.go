@@ -207,7 +207,7 @@ func (pc PbConverter) columnToPBExpr(column *Column) *tipb.Expr {
 		return nil
 	}
 	switch column.GetType().Tp {
-	case mysql.TypeBit, mysql.TypeSet, mysql.TypeEnum, mysql.TypeGeometry, mysql.TypeUnspecified:
+	case mysql.TypeBit, mysql.TypeGeometry, mysql.TypeUnspecified:
 		return nil
 	}
 
