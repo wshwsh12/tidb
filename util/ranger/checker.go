@@ -60,6 +60,9 @@ func (c *conditionChecker) checkScalarFunction(scalar *expression.ScalarFunction
 				}
 				return scalar.FuncName.L != ast.NE || c.length == types.UnspecifiedLength
 			}
+			if c.checkCastWrapEnum(scalar.GetArgs()[1]) && scalar.FuncName.L == ast.EQ {
+				return true
+			}
 		}
 		if _, ok := scalar.GetArgs()[1].(*expression.Constant); ok {
 			if c.checkColumn(scalar.GetArgs()[0]) {
@@ -72,6 +75,9 @@ func (c *conditionChecker) checkScalarFunction(scalar *expression.ScalarFunction
 					return false
 				}
 				return scalar.FuncName.L != ast.NE || c.length == types.UnspecifiedLength
+			}
+			if c.checkCastWrapEnum(scalar.GetArgs()[0]) && scalar.FuncName.L == ast.EQ {
+				return true
 			}
 		}
 	case ast.IsNull:
@@ -170,4 +176,18 @@ func (c *conditionChecker) checkColumn(expr expression.Expression) bool {
 		return false
 	}
 	return c.colUniqueID == col.UniqueID
+}
+
+func (c *conditionChecker) checkCastWrapEnum(expr expression.Expression) bool {
+	col, ok := expr.(*expression.ScalarFunction)
+	if !ok {
+		return false
+	}
+	if col.FuncName.L != ast.Cast || col.RetType.EvalType() != types.ETInt {
+		return false
+	}
+	if !c.checkColumn(col.GetArgs()[0]) || !col.GetArgs()[0].GetType().Hybrid() {
+		return false
+	}
+	return true
 }

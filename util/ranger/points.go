@@ -222,7 +222,10 @@ func (r *builder) buildFormBinOp(expr *expression.ScalarFunction) []point {
 		}
 		return
 	}
-	if col, ok := expr.GetArgs()[0].(*expression.Column); ok {
+	if col, ok := expr.GetArgs()[0].(*expression.Column); ok || checkCastWrapEnum(expr.GetArgs()[0]) {
+		if checkCastWrapEnum(expr.GetArgs()[0]) {
+			col = expr.GetArgs()[0].(*expression.ScalarFunction).GetArgs()[0].(*expression.Column)
+		}
 		ft = col.RetType
 		value, err = expr.GetArgs()[1].Eval(chunk.Row{})
 		if err != nil {
@@ -235,6 +238,10 @@ func (r *builder) buildFormBinOp(expr *expression.ScalarFunction) []point {
 		op = expr.FuncName.L
 	} else {
 		col, ok := expr.GetArgs()[1].(*expression.Column)
+		if checkCastWrapEnum(expr.GetArgs()[1]) {
+			col = expr.GetArgs()[1].(*expression.ScalarFunction).GetArgs()[0].(*expression.Column)
+			ok = true
+		}
 		if !ok {
 			return nil
 		}
@@ -309,6 +316,23 @@ func (r *builder) buildFormBinOp(expr *expression.ScalarFunction) []point {
 		return []point{startPoint, endPoint}
 	}
 	return nil
+}
+
+func checkCastWrapEnum(expr expression.Expression) bool {
+	col, ok := expr.(*expression.ScalarFunction)
+	if !ok {
+		return false
+	}
+	if col.FuncName.L != ast.Cast || col.RetType.EvalType() != types.ETInt {
+		return false
+	}
+	if _, ok := col.GetArgs()[0].(*expression.Column); !ok {
+		return false
+	}
+	if !col.GetArgs()[0].GetType().Hybrid() {
+		return false
+	}
+	return true
 }
 
 // handleUnsignedCol handles the case when unsigned column meets negative value.
