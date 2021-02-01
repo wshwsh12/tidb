@@ -97,6 +97,10 @@ func convertPoint(sc *stmtctx.StatementContext, point point, tp *types.FieldType
 			// see issue #20101: overflow when converting integer to year
 		} else if tp.Tp == mysql.TypeBit && terror.ErrorEqual(err, types.ErrDataTooLong) {
 			// see issue #19067: we should ignore the types.ErrDataTooLong when we convert value to TypeBit value
+		} else if tp.Tp == mysql.TypeEnum && terror.ErrorEqual(err, types.ErrTruncated) {
+			// we should convert truncated enum to empty range
+			point.value, point.excl = casted, true
+			return point, nil
 		} else {
 			return point, errors.Trace(err)
 		}
