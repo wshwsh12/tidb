@@ -1839,7 +1839,7 @@ func BuildCastFunction(ctx sessionctx.Context, expr Expression, tp *types.FieldT
 // WrapWithCastAsInt wraps `expr` with `cast` if the return type of expr is not
 // type int, otherwise, returns `expr` directly.
 func WrapWithCastAsInt(ctx sessionctx.Context, expr Expression) Expression {
-	if expr.GetType().Tp == mysql.TypeEnum || expr.GetType().Tp == mysql.TypeSet {
+	if expr.GetType().Tp == mysql.TypeEnum {
 		expr.GetType().Flag |= mysql.EnumSetAsIntFlag
 	}
 	if expr.GetType().EvalType() == types.ETInt {
