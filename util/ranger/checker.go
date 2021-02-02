@@ -15,6 +15,7 @@ package ranger
 
 import (
 	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/collate"
@@ -54,6 +55,12 @@ func (c *conditionChecker) checkScalarFunction(scalar *expression.ScalarFunction
 				if scalar.GetArgs()[1].GetType().EvalType() == types.ETString && !collate.CompatibleCollate(scalar.GetArgs()[1].GetType().Collate, collation) {
 					return false
 				}
+				// Enum using ETString only support EQ condition.
+				if scalar.GetArgs()[1].GetType().Tp == mysql.TypeEnum &&
+					!mysql.HasEnumSetAsIntFlag(scalar.GetArgs()[1].GetType().Flag) &&
+					scalar.FuncName.L != ast.EQ {
+					return false
+				}
 				return scalar.FuncName.L != ast.NE || c.length == types.UnspecifiedLength
 			}
 		}
@@ -61,6 +68,12 @@ func (c *conditionChecker) checkScalarFunction(scalar *expression.ScalarFunction
 			if c.checkColumn(scalar.GetArgs()[0]) {
 				// Checks whether the scalar function is calculated use the collation compatible with the column.
 				if scalar.GetArgs()[0].GetType().EvalType() == types.ETString && !collate.CompatibleCollate(scalar.GetArgs()[0].GetType().Collate, collation) {
+					return false
+				}
+				// Enum using ETString only support EQ condition.
+				if scalar.GetArgs()[0].GetType().Tp == mysql.TypeEnum &&
+					!mysql.HasEnumSetAsIntFlag(scalar.GetArgs()[0].GetType().Flag) &&
+					scalar.FuncName.L != ast.EQ {
 					return false
 				}
 				return scalar.FuncName.L != ast.NE || c.length == types.UnspecifiedLength
