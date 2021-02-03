@@ -97,10 +97,16 @@ func (t *topNHeap) Less(i, j int) bool {
 		v1 := t.rows[i].key[index]
 		v2 := t.rows[j].key[index]
 
-		ret, err := v1.CompareDatum(t.sc, &v2)
-		if err != nil {
-			t.err = errors.Trace(err)
-			return true
+		var ret int
+		var err error
+		if v1.Kind() == types.KindMysqlEnum && v2.Kind() == types.KindMysqlEnum {
+			ret = types.CompareInt64(v1.GetInt64(), v2.GetInt64())
+		} else {
+			ret, err = v1.CompareDatum(t.sc, &v2)
+			if err != nil {
+				t.err = errors.Trace(err)
+				return true
+			}
 		}
 
 		if by.Desc {
