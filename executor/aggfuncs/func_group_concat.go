@@ -40,6 +40,8 @@ const (
 	DefPartialResult4GroupConcatOrderSize = int64(unsafe.Sizeof(partialResult4GroupConcatOrder{}))
 	// DefPartialResult4GroupConcatOrderDistinctSize is the size of partialResult4GroupConcatOrderDistinct
 	DefPartialResult4GroupConcatOrderDistinctSize = int64(unsafe.Sizeof(partialResult4GroupConcatOrderDistinct{}))
+	// DefBytesBufferSize is the size of bytes.Buffer.
+	DefBytesBufferSize = int64(unsafe.Sizeof(bytes.Buffer{}))
 )
 
 type baseGroupConcat4String struct {
@@ -98,7 +100,7 @@ type groupConcat struct {
 func (e *groupConcat) AllocPartialResult() (pr PartialResult, memDelta int64) {
 	p := new(partialResult4GroupConcat)
 	p.valsBuf = &bytes.Buffer{}
-	return PartialResult(p), DefPartialResult4GroupConcatSize
+	return PartialResult(p), DefPartialResult4GroupConcatSize + DefBytesBufferSize
 }
 
 func (e *groupConcat) ResetPartialResult(pr PartialResult) {
@@ -109,11 +111,19 @@ func (e *groupConcat) ResetPartialResult(pr PartialResult) {
 func (e *groupConcat) UpdatePartialResult(sctx sessionctx.Context, rowsInGroup []chunk.Row, pr PartialResult) (memDelta int64, err error) {
 	p := (*partialResult4GroupConcat)(pr)
 	v, isNull := "", false
+	memDelta += int64(-p.valsBuf.Cap())
+	if p.buffer != nil {
+		memDelta += int64(-p.buffer.Cap())
+	}
 	for _, row := range rowsInGroup {
 		p.valsBuf.Reset()
 		for _, arg := range e.args {
 			v, isNull, err = arg.EvalString(sctx, row)
 			if err != nil {
+				memDelta += int64(p.valsBuf.Cap())
+				if p.buffer != nil {
+					memDelta += int64(p.buffer.Cap())
+				}
 				return memDelta, err
 			}
 			if isNull {
@@ -124,18 +134,17 @@ func (e *groupConcat) UpdatePartialResult(sctx sessionctx.Context, rowsInGroup [
 		if isNull {
 			continue
 		}
-		var oldMem int
 		if p.buffer == nil {
 			p.buffer = &bytes.Buffer{}
+			memDelta += DefBytesBufferSize
 		} else {
-			oldMem = p.buffer.Cap()
 			p.buffer.WriteString(e.sep)
 		}
 		p.buffer.WriteString(p.valsBuf.String())
-		newMem := p.buffer.Cap()
-		memDelta += int64(newMem - oldMem)
 	}
+	memDelta += int64(p.valsBuf.Cap())
 	if p.buffer != nil {
+		memDelta += int64(p.buffer.Cap())
 		return memDelta, e.truncatePartialResultIfNeed(sctx, p.buffer)
 	}
 	return memDelta, nil
@@ -179,7 +188,7 @@ func (e *groupConcatDistinct) AllocPartialResult() (pr PartialResult, memDelta i
 	p := new(partialResult4GroupConcatDistinct)
 	p.valsBuf = &bytes.Buffer{}
 	p.valSet, memDelta = NewStringSetWithMemoryUsage()
-	return PartialResult(p), DefPartialResult4GroupConcatDistinctSize + memDelta
+	return PartialResult(p), DefPartialResult4GroupConcatDistinctSize + memDelta + DefBytesBufferSize
 }
 
 func (e *groupConcatDistinct) ResetPartialResult(pr PartialResult) {
@@ -191,12 +200,20 @@ func (e *groupConcatDistinct) ResetPartialResult(pr PartialResult) {
 func (e *groupConcatDistinct) UpdatePartialResult(sctx sessionctx.Context, rowsInGroup []chunk.Row, pr PartialResult) (memDelta int64, err error) {
 	p := (*partialResult4GroupConcatDistinct)(pr)
 	v, isNull := "", false
+	memDelta += int64(-p.valsBuf.Cap()) + (int64(-len(p.encodeBytesBuffer)))
+	if p.buffer != nil {
+		memDelta += int64(-p.buffer.Cap())
+	}
 	for _, row := range rowsInGroup {
 		p.valsBuf.Reset()
 		p.encodeBytesBuffer = p.encodeBytesBuffer[:0]
 		for _, arg := range e.args {
 			v, isNull, err = arg.EvalString(sctx, row)
 			if err != nil {
+				memDelta += int64(p.valsBuf.Cap())
+				if p.buffer != nil {
+					memDelta += int64(p.buffer.Cap())
+				}
 				return memDelta, err
 			}
 			if isNull {
@@ -212,22 +229,19 @@ func (e *groupConcatDistinct) UpdatePartialResult(sctx sessionctx.Context, rowsI
 		if p.valSet.Exist(joinedVal) {
 			continue
 		}
-		p.valSet.Insert(joinedVal)
-		memDelta += int64(len(joinedVal))
-		var oldMem int
+		memDelta += p.valSet.Insert(joinedVal)
 		// write separator
 		if p.buffer == nil {
 			p.buffer = &bytes.Buffer{}
 		} else {
-			oldMem = p.buffer.Cap()
 			p.buffer.WriteString(e.sep)
 		}
 		// write values
 		p.buffer.WriteString(p.valsBuf.String())
-		newMem := p.buffer.Cap()
-		memDelta += int64(newMem - oldMem)
 	}
+	memDelta += int64(p.valsBuf.Cap()) + int64(len(p.encodeBytesBuffer))
 	if p.buffer != nil {
+		memDelta += int64(p.buffer.Cap())
 		return memDelta, e.truncatePartialResultIfNeed(sctx, p.buffer)
 	}
 	return memDelta, nil
