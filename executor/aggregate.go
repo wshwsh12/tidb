@@ -527,6 +527,7 @@ func getGroupKey(ctx sessionctx.Context, input *chunk.Chunk, groupKey [][]byte, 
 func (w *baseHashAggWorker) getPartialResult(sc *stmtctx.StatementContext, groupKey [][]byte, mapper aggPartialResultMapper) [][]aggfuncs.PartialResult {
 	n := len(groupKey)
 	partialResults := make([][]aggfuncs.PartialResult, n)
+	allMemDelta := int64(0)
 	for i := 0; i < n; i++ {
 		var ok bool
 		if partialResults[i], ok = mapper[string(groupKey[i])]; ok {
@@ -535,16 +536,17 @@ func (w *baseHashAggWorker) getPartialResult(sc *stmtctx.StatementContext, group
 		for _, af := range w.aggFuncs {
 			partialResult, memDelta := af.AllocPartialResult()
 			partialResults[i] = append(partialResults[i], partialResult)
-			w.memTracker.Consume(memDelta)
+			allMemDelta += memDelta
 		}
 		mapper[string(groupKey[i])] = partialResults[i]
-		w.memTracker.Consume(int64(len(groupKey[i])))
+		allMemDelta += int64(len(groupKey[i]))
 		// Map will expand when count > bucketNum * loadFactor. The memory usage will doubled.
 		if len(mapper) > (1<<w.BInMap)*loadFactorNum/loadFactorDen {
 			w.memTracker.Consume(defBucketMemoryUsage * (1 << w.BInMap))
 			w.BInMap++
 		}
 	}
+	w.memTracker.Consume(allMemDelta)
 	return partialResults
 }
 
