@@ -40,8 +40,11 @@ const (
 	DefPartialResult4GroupConcatOrderSize = int64(unsafe.Sizeof(partialResult4GroupConcatOrder{}))
 	// DefPartialResult4GroupConcatOrderDistinctSize is the size of partialResult4GroupConcatOrderDistinct
 	DefPartialResult4GroupConcatOrderDistinctSize = int64(unsafe.Sizeof(partialResult4GroupConcatOrderDistinct{}))
+
 	// DefBytesBufferSize is the size of bytes.Buffer.
 	DefBytesBufferSize = int64(unsafe.Sizeof(bytes.Buffer{}))
+	// DefTopNRowsSize is the size of topNRows.
+	DefTopNRowsSize = int64(unsafe.Sizeof(topNRows{}))
 )
 
 type baseGroupConcat4String struct {
@@ -313,19 +316,18 @@ func (h *topNRows) Pop() interface{} {
 	return x
 }
 
-func (h *topNRows) tryToAdd(row sortRow) (truncated bool, sortRowMemSize int64) {
-	oldSize := h.currSize
+func (h *topNRows) tryToAdd(row sortRow) (truncated bool, memDelta int64) {
 	h.currSize += uint64(row.buffer.Len())
 	if len(h.rows) > 0 {
 		h.currSize += h.sepSize
 	}
 	heap.Push(h, row)
+	memDelta += int64(row.buffer.Cap())
 	for _, dt := range row.byItems {
-		sortRowMemSize += GetDatumMemSize(dt)
+		memDelta += GetDatumMemSize(dt)
 	}
 	if h.currSize <= h.limitSize {
-		sortRowMemSize += int64(h.currSize - oldSize)
-		return false, sortRowMemSize
+		return false, memDelta
 	}
 
 	for h.currSize > h.limitSize {
@@ -335,14 +337,14 @@ func (h *topNRows) tryToAdd(row sortRow) (truncated bool, sortRowMemSize int64) 
 			h.rows[0].buffer.Truncate(h.rows[0].buffer.Len() - int(debt))
 		} else {
 			h.currSize -= uint64(h.rows[0].buffer.Len()) + h.sepSize
+			memDelta -= int64(h.rows[0].buffer.Cap())
 			for _, dt := range h.rows[0].byItems {
-				sortRowMemSize -= GetDatumMemSize(dt)
+				memDelta -= GetDatumMemSize(dt)
 			}
 			heap.Pop(h)
 		}
 	}
-	sortRowMemSize += int64(h.currSize - oldSize)
-	return true, sortRowMemSize
+	return true, memDelta
 }
 
 func (h *topNRows) reset() {
@@ -399,7 +401,7 @@ func (e *groupConcatOrder) AllocPartialResult() (pr PartialResult, memDelta int6
 			sepSize:   uint64(len(e.sep)),
 		},
 	}
-	return PartialResult(p), DefPartialResult4GroupConcatOrderSize
+	return PartialResult(p), DefPartialResult4GroupConcatOrderSize + DefTopNRowsSize
 }
 
 func (e *groupConcatOrder) ResetPartialResult(pr PartialResult) {
@@ -502,7 +504,7 @@ func (e *groupConcatDistinctOrder) AllocPartialResult() (pr PartialResult, memDe
 		},
 		valSet: valSet,
 	}
-	return PartialResult(p), DefPartialResult4GroupConcatOrderDistinctSize + memDelta
+	return PartialResult(p), DefPartialResult4GroupConcatOrderDistinctSize + memDelta + DefTopNRowsSize
 }
 
 func (e *groupConcatDistinctOrder) ResetPartialResult(pr PartialResult) {
@@ -515,12 +517,14 @@ func (e *groupConcatDistinctOrder) UpdatePartialResult(sctx sessionctx.Context, 
 	p := (*partialResult4GroupConcatOrderDistinct)(pr)
 	p.topN.sctx = sctx
 	v, isNull := "", false
+	memDelta += int64(-cap(p.encodeBytesBuffer))
 	for _, row := range rowsInGroup {
 		buffer := new(bytes.Buffer)
 		p.encodeBytesBuffer = p.encodeBytesBuffer[:0]
 		for _, arg := range e.args {
 			v, isNull, err = arg.EvalString(sctx, row)
 			if err != nil {
+				memDelta += int64(cap(p.encodeBytesBuffer))
 				return memDelta, err
 			}
 			if isNull {
@@ -536,7 +540,7 @@ func (e *groupConcatDistinctOrder) UpdatePartialResult(sctx sessionctx.Context, 
 		if p.valSet.Exist(joinedVal) {
 			continue
 		}
-		p.valSet.Insert(joinedVal)
+		memDelta += p.valSet.Insert(joinedVal)
 		sortRow := sortRow{
 			buffer:  buffer,
 			byItems: make([]*types.Datum, 0, len(e.byItems)),
@@ -544,13 +548,13 @@ func (e *groupConcatDistinctOrder) UpdatePartialResult(sctx sessionctx.Context, 
 		for _, byItem := range e.byItems {
 			d, err := byItem.Expr.Eval(row)
 			if err != nil {
+				memDelta += int64(cap(p.encodeBytesBuffer))
 				return memDelta, err
 			}
 			sortRow.byItems = append(sortRow.byItems, d.Clone())
 		}
 		truncated, sortRowMemSize := p.topN.tryToAdd(sortRow)
 		memDelta += sortRowMemSize
-		memDelta += int64(len(joinedVal))
 		if p.topN.err != nil {
 			return memDelta, p.topN.err
 		}
