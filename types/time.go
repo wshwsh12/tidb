@@ -23,7 +23,6 @@ import (
 	gotime "time"
 	"unicode"
 
-	"github.com/cznic/mathutil"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
@@ -752,7 +751,7 @@ func ParseDateFormat(format string) []string {
 	// Setting `seps`'s capacity to 6 avoids reallocation in this common case.
 	seps := make([]string, 0, 6)
 
-	for i := 1; i < len(format)-1; i++ {
+	for i := 1; i < len(format); i++ {
 		if isValidSeparator(format[i], len(seps)) {
 			prevParts := len(seps)
 			seps = append(seps, format[start:i])
@@ -776,13 +775,8 @@ func ParseDateFormat(format string) []string {
 		}
 	}
 
-	var end = 0
-	for end = start; end < len(format) && !isValidSeparator(format[end], len(seps)); end++ {
-	}
-
-	end = mathutil.Min(end, len(format))
-	if end != start {
-		seps = append(seps, format[start:end])
+	if start < len(format) {
+		seps = append(seps, format[start:])
 	}
 
 	return seps
