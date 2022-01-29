@@ -66,6 +66,9 @@ type Column struct {
 	offsets    []int64 // used for varLen column. Row i starts from data[offsets[i]]
 	data       []byte
 	elemBuf    []byte
+
+	// We need to distinguish whether the column reuses grpc data to ensure that the memory usage is not too large
+	reuseGRPC bool
 }
 
 // ColumnAllocator defines an allocator for Column.

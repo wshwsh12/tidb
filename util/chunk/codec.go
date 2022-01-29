@@ -140,6 +140,7 @@ func (c *Codec) decodeColumn(buffer []byte, col *Column, ordinal int) (remained 
 
 	// decode data.
 	col.data = buffer[:numDataBytes:numDataBytes]
+	col.reuseGRPC = true
 	return buffer[numDataBytes:]
 }
 
