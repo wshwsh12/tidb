@@ -750,7 +750,7 @@ const (
 	DefTiDBDDLSlowOprThreshold            = 300
 	DefTiDBUseFastAnalyze                 = false
 	DefTiDBSkipIsolationLevelCheck        = false
-	DefTiDBExpensiveQueryTimeThreshold    = 60 // 60s
+	DefTiDBExpensiveQueryTimeThreshold    = 10 // 10s
 	DefTiDBScatterRegion                  = false
 	DefTiDBWaitSplitRegionFinish          = true
 	DefWaitSplitRegionTimeout             = 300 // 300s

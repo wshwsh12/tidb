@@ -1029,6 +1029,10 @@ type SessionVars struct {
 // InitStatementContext initializes a StatementContext, the object is reused to reduce allocation.
 func (s *SessionVars) InitStatementContext() *stmtctx.StatementContext {
 	s.cached.curr = (s.cached.curr + 1) % 2
+	if s.cached.curr == 0 && !s.InRestrictedSQL {
+		fmt.Println("InitStatementContext sleep 10")
+		time.Sleep(10 * time.Second)
+	}
 	s.cached.data[s.cached.curr] = stmtctx.StatementContext{}
 	return &s.cached.data[s.cached.curr]
 }

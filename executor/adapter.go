@@ -45,6 +45,7 @@ import (
 	plannercore "github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/plugin"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/sessiontxn"
 	"github.com/pingcap/tidb/types"
@@ -1035,7 +1036,7 @@ func (a *ExecStmt) LogSlowQuery(txnTS uint64, succ bool, hasMoreResults bool) {
 		tikvExecDetail = *(tikvExecDetailRaw.(*util.ExecDetails))
 	}
 	execDetail := sessVars.StmtCtx.GetExecDetails()
-	copTaskInfo := sessVars.StmtCtx.CopTasksDetails()
+	copTaskInfo := &stmtctx.CopTasksDetails{}
 	statsInfos := plannercore.GetStatsInfo(a.Plan)
 	memMax := sessVars.StmtCtx.MemTracker.MaxConsumed()
 	diskMax := sessVars.StmtCtx.DiskTracker.MaxConsumed()
@@ -1246,7 +1247,7 @@ func (a *ExecStmt) SummaryStmt(succ bool) {
 	}
 
 	execDetail := stmtCtx.GetExecDetails()
-	copTaskInfo := stmtCtx.CopTasksDetails()
+	copTaskInfo := &stmtctx.CopTasksDetails{}
 	memMax := stmtCtx.MemTracker.MaxConsumed()
 	diskMax := stmtCtx.DiskTracker.MaxConsumed()
 	sql := a.GetTextToLog()

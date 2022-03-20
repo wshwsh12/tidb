@@ -15,6 +15,7 @@
 package stmtctx
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -761,8 +762,12 @@ func (sc *StatementContext) PushDownFlags() uint64 {
 
 // CopTasksDetails returns some useful information of cop-tasks during execution.
 func (sc *StatementContext) CopTasksDetails() *CopTasksDetails {
+	fmt.Println("CopTasksDetails sleep 10")
+	time.Sleep(10 * time.Second)
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+	fmt.Println("CopTasksDetails Lock sleep 10")
+	time.Sleep(10 * time.Second)
 	n := len(sc.mu.allExecDetails)
 	d := &CopTasksDetails{
 		NumCopTasks:       n,
