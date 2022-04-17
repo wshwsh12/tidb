@@ -18,6 +18,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/util/logutil"
+	"go.uber.org/zap"
+	"runtime"
 	"runtime/trace"
 	"strconv"
 	"sync"
@@ -44,6 +47,11 @@ import (
 var (
 	_ Executor = &HashJoinExec{}
 	_ Executor = &NestedLoopApplyExec{}
+)
+
+var (
+	getStoreMem = memory.NewTracker(-1, -1)
+	mapMem      = memory.NewTracker(-1, -1)
 )
 
 // HashJoinExec implements the hash join algorithm.
@@ -116,6 +124,13 @@ type hashjoinWorkerResult struct {
 
 // Close implements the Executor Close interface.
 func (e *HashJoinExec) Close() error {
+	runtime.GC()
+	runtime.GC()
+	logutil.BgLogger().Info("Sleep 10s, Please pprof")
+	logutil.BgLogger().Info("rowContainer", zap.Int64("mem", e.rowContainer.GetMemTracker().BytesConsumed()))
+	logutil.BgLogger().Info("getStore", zap.Int64("mem", getStoreMem.BytesConsumed()))
+	logutil.BgLogger().Info("map", zap.Int64("mem", mapMem.BytesConsumed()))
+	time.Sleep(time.Second * 10)
 	if e.closeCh != nil {
 		close(e.closeCh)
 	}
@@ -158,6 +173,8 @@ func (e *HashJoinExec) Close() error {
 
 // Open implements the Executor Open interface.
 func (e *HashJoinExec) Open(ctx context.Context) error {
+	getStoreMem.Consume(-getStoreMem.BytesConsumed())
+	mapMem.Consume(-mapMem.BytesConsumed())
 	if err := e.baseExecutor.Open(ctx); err != nil {
 		return err
 	}

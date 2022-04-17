@@ -366,7 +366,10 @@ func (ht *concurrentMapHashTable) Put(hashKey uint64, rowPtr chunk.RowPtr) {
 	newEntry, memDelta := ht.entryStore.GetStore()
 	newEntry.ptr = rowPtr
 	newEntry.next = nil
-	memDelta += ht.hashMap.Insert(hashKey, newEntry)
+	getStoreMem.Consume(memDelta)
+	temp := ht.hashMap.Insert(hashKey, newEntry)
+	memDelta += temp
+	mapMem.Consume(temp)
 	if memDelta != 0 {
 		atomic.AddInt64(&ht.memDelta, memDelta)
 	}

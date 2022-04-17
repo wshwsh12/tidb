@@ -381,19 +381,9 @@ func (p *LogicalJoin) getHashJoins(prop *property.PhysicalProperty) []PhysicalPl
 	case SemiJoin, AntiSemiJoin, LeftOuterSemiJoin, AntiLeftOuterSemiJoin:
 		joins = append(joins, p.getHashJoin(prop, 1, false))
 	case LeftOuterJoin:
-		if ForceUseOuterBuild4Test {
-			joins = append(joins, p.getHashJoin(prop, 1, true))
-		} else {
-			joins = append(joins, p.getHashJoin(prop, 1, false))
-			joins = append(joins, p.getHashJoin(prop, 1, true))
-		}
+		joins = append(joins, p.getHashJoin(prop, 1, false))
 	case RightOuterJoin:
-		if ForceUseOuterBuild4Test {
-			joins = append(joins, p.getHashJoin(prop, 0, true))
-		} else {
-			joins = append(joins, p.getHashJoin(prop, 0, false))
-			joins = append(joins, p.getHashJoin(prop, 0, true))
-		}
+		joins = append(joins, p.getHashJoin(prop, 0, false))
 	case InnerJoin:
 		if ForcedHashLeftJoin4Test {
 			joins = append(joins, p.getHashJoin(prop, 1, false))
