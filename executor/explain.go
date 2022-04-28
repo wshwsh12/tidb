@@ -16,11 +16,18 @@ package executor
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
+	rpprof "runtime/pprof"
+	"time"
 
+	"github.com/cznic/mathutil"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/util/chunk"
-	"github.com/pingcap/tidb/util/mathutil"
+	"github.com/pingcap/tidb/util/logutil"
 )
 
 // ExplainExec represents an explain executor.
@@ -80,7 +87,33 @@ func (e *ExplainExec) Next(ctx context.Context, req *chunk.Chunk) error {
 func (e *ExplainExec) executeAnalyzeExec(ctx context.Context) (err error) {
 	if e.analyzeExec != nil && !e.executed {
 		defer func() {
+			tempDir := filepath.Join(config.GetGlobalConfig().TempStoragePath, "record")
+			if e.ctx.GetSessionVars().DebugMode == 1 {
+				logutil.BgLogger().Info("The SQL is running in memory debug mode")
+				logutil.BgLogger().Info("Sleep 3s, please dump the heap before runtime.GC()")
+				timeString := time.Now().Format(time.RFC3339)
+				fileName := filepath.Join(tempDir, "heapBeforeGC"+timeString)
+				f, _ := os.Create(fileName)
+				p := rpprof.Lookup("heap")
+				_ = p.WriteTo(f, 0)
+				_ = f.Close()
+				time.Sleep(3 * time.Second)
+				runtime.GC()
+				runtime.GC()
+				logutil.BgLogger().Info("Sleep 3s again, please dump the heap after runtime.GC()")
+				fileName = filepath.Join(tempDir, "heapAfterGC"+timeString)
+				f, _ = os.Create(fileName)
+				p = rpprof.Lookup("heap")
+				_ = p.WriteTo(f, 0)
+				_ = f.Close()
+				time.Sleep(3 * time.Second)
+			}
 			err1 := e.analyzeExec.Close()
+			if e.ctx.GetSessionVars().DebugMode == 1 {
+				runtime.GC()
+				runtime.GC()
+				logutil.BgLogger().Info("GC() after executor Close(), please check memory leak")
+			}
 			if err1 != nil {
 				if err != nil {
 					err = errors.New(err.Error() + ", " + err1.Error())

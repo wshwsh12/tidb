@@ -1438,6 +1438,10 @@ var defaultSysVars = []*SysVar{
 		s.MemQuotaQuery = TidbOptInt64(val, DefTiDBMemQuotaQuery)
 		return nil
 	}},
+	{Scope: ScopeSession, Name: "tidb_debug_mode", Value: strconv.Itoa(0), Type: TypeInt, MinValue: 0, MaxValue: 1, SetSession: func(s *SessionVars, val string) error {
+		s.DebugMode = TidbOptInt64(val, 0)
+		return nil
+	}},
 }
 
 // FeedbackProbability points to the FeedbackProbability in statistics package.
