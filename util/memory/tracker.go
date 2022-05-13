@@ -200,7 +200,12 @@ func reArrangeFallback(a ActionOnExceed, b ActionOnExceed) ActionOnExceed {
 
 // SetLabel sets the label of a Tracker.
 func (t *Tracker) SetLabel(label int) {
+	parent := t.getParent()
+	t.Detach()
 	t.label = label
+	if parent != nil {
+		t.AttachTo(parent)
+	}
 }
 
 // Label gets the label of a Tracker.
@@ -212,6 +217,10 @@ func (t *Tracker) Label() int {
 // already has a parent, this function will remove it from the old parent.
 // Its consumed memory usage is used to update all its ancestors.
 func (t *Tracker) AttachTo(parent *Tracker) {
+	if parent.isGlobal {
+		t.AttachToGlobalTracker(parent)
+		return
+	}
 	oldParent := t.getParent()
 	if oldParent != nil {
 		oldParent.remove(t)
