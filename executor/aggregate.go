@@ -58,8 +58,12 @@ type baseHashAggWorker struct {
 	maxChunkSize int
 	stats        *AggWorkerStat
 
-	memTracker *memory.Tracker
-	BInMap     int // indicate there are 2^BInMap buckets in Golang Map.
+	memTracker            *memory.Tracker
+	allocTracker          *memory.Tracker
+	partialPointerTracker *memory.Tracker
+	mapperTracker         *memory.Tracker
+	stringSetTracker      *memory.Tracker
+	BInMap                int // indicate there are 2^BInMap buckets in Golang Map.
 }
 
 func newBaseHashAggWorker(ctx sessionctx.Context, finishCh <-chan struct{}, aggFuncs []aggfuncs.AggFunc,
@@ -191,6 +195,11 @@ type HashAggExec struct {
 	memTracker  *memory.Tracker // track memory usage.
 	diskTracker *disk.Tracker
 
+	allocTracker          *memory.Tracker
+	partialPointerTracker *memory.Tracker
+	mapperTracker         *memory.Tracker
+	stringSetTracker      *memory.Tracker
+
 	stats *HashAggRuntimeStats
 
 	// listInDisk is the chunks to store row values for spilled data.
@@ -243,6 +252,12 @@ func (d *HashAggIntermData) getPartialResultBatch(sc *stmtctx.StatementContext, 
 
 // Close implements the Executor Close interface.
 func (e *HashAggExec) Close() error {
+	logutil.BgLogger().Info("test",
+		zap.Int64("alloc", e.allocTracker.MaxConsumed()),
+		zap.Int64("mapper", e.mapperTracker.MaxConsumed()),
+		zap.Int64("partialResultPointer", e.partialPointerTracker.MaxConsumed()),
+		zap.Int64("stringSet", e.stringSetTracker.MaxConsumed()))
+
 	if e.isUnparallelExec {
 		var firstErr error
 		e.childResult = nil
@@ -310,6 +325,11 @@ func (e *HashAggExec) Open(ctx context.Context) error {
 	if e.ctx.GetSessionVars().TrackAggregateMemoryUsage {
 		e.memTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.MemTracker)
 	}
+
+	e.allocTracker = memory.NewTracker(-1, -1)
+	e.stringSetTracker = memory.NewTracker(-1, -1)
+	e.mapperTracker = memory.NewTracker(-1, -1)
+	e.partialPointerTracker = memory.NewTracker(-1, -1)
 
 	if e.isUnparallelExec {
 		e.initForUnparallelExec()
@@ -386,6 +406,11 @@ func (e *HashAggExec) initForParallelExec(ctx sessionctx.Context) {
 			chk:               newFirstChunk(e.children[0]),
 			groupKey:          make([][]byte, 0, 8),
 		}
+		w.allocTracker = e.allocTracker
+		w.partialPointerTracker = e.partialPointerTracker
+		w.mapperTracker = e.mapperTracker
+		w.stringSetTracker = e.stringSetTracker
+
 		// There is a bucket in the empty partialResultsMap.
 		failpoint.Inject("ConsumeRandomPanic", nil)
 		e.memTracker.Consume(hack.DefBucketMemoryUsageForMapStrToSlice * (1 << w.BInMap))
@@ -417,6 +442,11 @@ func (e *HashAggExec) initForParallelExec(ctx sessionctx.Context) {
 			mutableRow:          chunk.MutRowFromTypes(retTypes(e)),
 			groupKeys:           make([][]byte, 0, 8),
 		}
+		w.allocTracker = e.allocTracker
+		w.partialPointerTracker = e.partialPointerTracker
+		w.mapperTracker = e.mapperTracker
+		w.stringSetTracker = e.stringSetTracker
+
 		// There is a bucket in the empty partialResultsMap.
 		e.memTracker.Consume(hack.DefBucketMemoryUsageForMapStrToSlice*(1<<w.BInMap) + setSize)
 		if e.stats != nil {
@@ -603,14 +633,18 @@ func (w *baseHashAggWorker) getPartialResult(sc *stmtctx.StatementContext, group
 			partialResult, memDelta := af.AllocPartialResult()
 			partialResults[i] = append(partialResults[i], partialResult)
 			allMemDelta += memDelta + 8 // the memory usage of PartialResult
+			w.partialPointerTracker.Consume(8)
+			w.allocTracker.Consume(memDelta)
 		}
 		mapper[string(groupKey[i])] = partialResults[i]
 		allMemDelta += int64(len(groupKey[i]))
 		// Map will expand when count > bucketNum * loadFactor. The memory usage will double.
 		if len(mapper) > (1<<w.BInMap)*hack.LoadFactorNum/hack.LoadFactorDen {
 			w.memTracker.Consume(hack.DefBucketMemoryUsageForMapStrToSlice * (1 << w.BInMap))
+			w.mapperTracker.Consume(hack.DefBucketMemoryUsageForMapStrToSlice * (1 << w.BInMap))
 			w.BInMap++
 		}
+		w.mapperTracker.Consume(int64(len(groupKey[i])))
 	}
 	failpoint.Inject("ConsumeRandomPanic", nil)
 	w.memTracker.Consume(allMemDelta)
@@ -677,6 +711,7 @@ func (w *HashAggFinalWorker) consumeIntermData(sctx sessionctx.Context) (err err
 				}
 			}
 			w.memTracker.Consume(allMemDelta)
+			w.stringSetTracker.Consume(allMemDelta)
 		}
 		if w.stats != nil {
 			w.stats.ExecTime += int64(time.Since(execStart))

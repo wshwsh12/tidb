@@ -145,7 +145,7 @@ func (a *PanicOnExceed) Action(t *Tracker) {
 	if a.logHook != nil {
 		a.logHook(a.ConnID)
 	}
-	panic(PanicMemoryExceed + fmt.Sprintf("[conn_id=%d]", a.ConnID))
+	panic(PanicMemoryExceed + fmt.Sprintf("[conn_id=%d]", a.ConnID) + fmt.Sprintf("mem: %d", t.bytesConsumed))
 }
 
 // GetPriority get the priority of the Action
