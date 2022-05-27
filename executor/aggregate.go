@@ -629,6 +629,7 @@ func (w *baseHashAggWorker) getPartialResult(sc *stmtctx.StatementContext, group
 		if partialResults[i], ok = mapper[string(groupKey[i])]; ok {
 			continue
 		}
+		partialResults[i] = make([]aggfuncs.PartialResult, 0, len(w.aggFuncs))
 		for _, af := range w.aggFuncs {
 			partialResult, memDelta := af.AllocPartialResult()
 			partialResults[i] = append(partialResults[i], partialResult)
