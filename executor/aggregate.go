@@ -63,6 +63,8 @@ type baseHashAggWorker struct {
 	partialPointerTracker *memory.Tracker
 	mapperTracker         *memory.Tracker
 	stringSetTracker      *memory.Tracker
+	updateTracker         *memory.Tracker
+	groupKeyTracker       *memory.Tracker
 	BInMap                int // indicate there are 2^BInMap buckets in Golang Map.
 }
 
@@ -199,6 +201,8 @@ type HashAggExec struct {
 	partialPointerTracker *memory.Tracker
 	mapperTracker         *memory.Tracker
 	stringSetTracker      *memory.Tracker
+	updateTracker         *memory.Tracker
+	groupKeyTracker       *memory.Tracker
 
 	stats *HashAggRuntimeStats
 
@@ -256,7 +260,9 @@ func (e *HashAggExec) Close() error {
 		zap.Int64("alloc", e.allocTracker.MaxConsumed()),
 		zap.Int64("mapper", e.mapperTracker.MaxConsumed()),
 		zap.Int64("partialResultPointer", e.partialPointerTracker.MaxConsumed()),
-		zap.Int64("stringSet", e.stringSetTracker.MaxConsumed()))
+		zap.Int64("stringSet", e.stringSetTracker.MaxConsumed()),
+		zap.Int64("groupKey", e.groupKeyTracker.MaxConsumed()),
+		zap.Int64("update", e.updateTracker.MaxConsumed()))
 
 	if e.isUnparallelExec {
 		var firstErr error
@@ -330,6 +336,8 @@ func (e *HashAggExec) Open(ctx context.Context) error {
 	e.stringSetTracker = memory.NewTracker(-1, -1)
 	e.mapperTracker = memory.NewTracker(-1, -1)
 	e.partialPointerTracker = memory.NewTracker(-1, -1)
+	e.updateTracker = memory.NewTracker(-1, -1)
+	e.groupKeyTracker = memory.NewTracker(-1, -1)
 
 	if e.isUnparallelExec {
 		e.initForUnparallelExec()
@@ -410,6 +418,8 @@ func (e *HashAggExec) initForParallelExec(ctx sessionctx.Context) {
 		w.partialPointerTracker = e.partialPointerTracker
 		w.mapperTracker = e.mapperTracker
 		w.stringSetTracker = e.stringSetTracker
+		w.groupKeyTracker = e.groupKeyTracker
+		w.updateTracker = e.updateTracker
 
 		// There is a bucket in the empty partialResultsMap.
 		failpoint.Inject("ConsumeRandomPanic", nil)
@@ -537,6 +547,7 @@ func (w *HashAggPartialWorker) updatePartialResult(ctx sessionctx.Context, sc *s
 	w.groupKey, err = getGroupKey(w.ctx, chk, w.groupKey, w.groupByItems)
 	failpoint.Inject("ConsumeRandomPanic", nil)
 	w.memTracker.Consume(getGroupKeyMemUsage(w.groupKey) - memSize)
+	w.groupKeyTracker.Consume(getGroupKeyMemUsage(w.groupKey) - memSize)
 	if err != nil {
 		return err
 	}
@@ -555,6 +566,7 @@ func (w *HashAggPartialWorker) updatePartialResult(ctx sessionctx.Context, sc *s
 			allMemDelta += memDelta
 		}
 	}
+	w.updateTracker.Consume(allMemDelta)
 	w.memTracker.Consume(allMemDelta)
 	return nil
 }
@@ -696,6 +708,7 @@ func (w *HashAggFinalWorker) consumeIntermData(sctx sessionctx.Context) (err err
 			}
 			failpoint.Inject("ConsumeRandomPanic", nil)
 			w.memTracker.Consume(getGroupKeyMemUsage(w.groupKeys) - memSize)
+			w.groupKeyTracker.Consume(getGroupKeyMemUsage(w.groupKeys) - memSize)
 			finalPartialResults := w.getPartialResult(sc, w.groupKeys, w.partialResultMap)
 			allMemDelta := int64(0)
 			for i, groupKey := range groupKeys {
@@ -738,6 +751,7 @@ func (w *HashAggFinalWorker) getFinalResult(sctx sessionctx.Context) {
 	}
 	failpoint.Inject("ConsumeRandomPanic", nil)
 	w.memTracker.Consume(getGroupKeyMemUsage(w.groupKeys) - memSize)
+	w.groupKeyTracker.Consume(getGroupKeyMemUsage(w.groupKeys) - memSize)
 	partialResults := w.getPartialResult(sctx.GetSessionVars().StmtCtx, w.groupKeys, w.partialResultMap)
 	for i := 0; i < len(w.groupSet.StringSet); i++ {
 		for j, af := range w.aggFuncs {
