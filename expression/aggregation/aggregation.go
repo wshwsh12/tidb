@@ -222,8 +222,10 @@ func CheckAggPushFlash(aggFunc *AggFuncDesc) bool {
 		}
 	}
 	switch aggFunc.Name {
-	case ast.AggFuncSum, ast.AggFuncCount, ast.AggFuncMin, ast.AggFuncMax, ast.AggFuncAvg, ast.AggFuncFirstRow, ast.AggFuncApproxCountDistinct, ast.AggFuncGroupConcat:
+	case ast.AggFuncCount, ast.AggFuncMin, ast.AggFuncMax, ast.AggFuncFirstRow, ast.AggFuncApproxCountDistinct, ast.AggFuncGroupConcat:
 		return true
+	case ast.AggFuncSum, ast.AggFuncAvg:
+		return expression.CastSupportedByFlashWithoutPBCode(aggFunc.Args[0].GetType(), aggFunc.RetTp)
 	}
 	return false
 }
