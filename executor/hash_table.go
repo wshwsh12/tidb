@@ -230,6 +230,11 @@ const rowPtrSize = int64(unsafe.Sizeof(chunk.RowPtr{}))
 // h and buf.
 func (c *hashRowContainer) GetMatchedRowsAndPtrs(probeKey uint64, probeRow chunk.Row, hCtx *hashContext, matched []chunk.Row, matchedPtrs []chunk.RowPtr, needPtr bool) ([]chunk.Row, []chunk.RowPtr, error) {
 	var err error
+	defer func() {
+		if err != nil {
+			logutil.BgLogger().Info("testOOMJoin", zap.Any("err", err))
+		}
+	}()
 	innerPtrs := c.hashTable.Get(probeKey)
 	if len(innerPtrs) == 0 {
 		return nil, nil, err
