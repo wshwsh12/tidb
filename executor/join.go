@@ -70,7 +70,9 @@ type hashJoinCtx struct {
 	outerFilter        expression.CNFExprs
 	isNullAware        bool
 	memTracker         *memory.Tracker // track memory usage.
-	diskTracker        *disk.Tracker   // track disk usage.
+	diskTracker        *disk.Tracker   // tr// ack disk usage.
+
+	execId int
 }
 
 // probeSideTupleFetcher reads tuples from probeSideExec and send them to probeWorkers.
@@ -217,6 +219,7 @@ func (e *HashJoinExec) Open(ctx context.Context) error {
 			concurrent: int(e.concurrency),
 		}
 	}
+	e.hashJoinCtx.execId = e.id
 	return nil
 }
 
@@ -396,7 +399,7 @@ func (fetcher *probeSideTupleFetcher) handleProbeSideFetcherPanic(r interface{})
 
 func (w *probeWorker) handleProbeWorkerPanic(r interface{}) {
 	if r != nil {
-		logutil.BgLogger().Info("testJoinOOM, probe panic", zap.Any("worker id", w.workerID))
+		logutil.BgLogger().Info("testJoinOOM, probe panic", zap.Any("worker id", w.workerID), zap.Any("exec_id", w.hashJoinCtx.execId))
 		w.hashJoinCtx.joinResultCh <- &hashjoinWorkerResult{err: errors.Errorf("probeWorker[%d] meets error: %v", w.workerID, r)}
 	}
 }
@@ -1132,7 +1135,7 @@ func (e *HashJoinExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 		return nil
 	}
 	if result.err != nil {
-		logutil.BgLogger().Info("testJoinOOM, Next() get error")
+		logutil.BgLogger().Info("testJoinOOM, Next() get error", zap.Any("exec id", e.id))
 		e.finished.Store(true)
 		return result.err
 	}
