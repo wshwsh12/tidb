@@ -275,6 +275,7 @@ func (c *hashRowContainer) GetMatchedRowsAndPtrs(probeKey uint64, probeRow chunk
 			memDelta += int64(cap(matched))*rowSize + int64(cap(matchedPtrs))*rowPtrSize - matchedDataSize
 			matchedDataSize = int64(cap(matched))*rowSize + int64(cap(matchedPtrs))*rowPtrSize
 			c.memTracker.Consume(memDelta + 1)
+			logutil.BgLogger().Info("testJoinOOM, no panic", zap.Any("memory usage", c.sc.MemTracker.BytesConsumed()))
 			memDelta = 0
 		}
 		if !ok {
