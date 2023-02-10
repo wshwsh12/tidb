@@ -270,7 +270,7 @@ func (c *hashRowContainer) GetMatchedRowsAndPtrs(probeKey uint64, probeRow chunk
 			memDelta += lastChunkSize
 		}
 		lastChunkBufPointer = c.chkBuf
-		if needTrackMemUsage && (i&signalCheckpointForJoin == (signalCheckpointForJoin - 1)) {
+		if needTrackMemUsage && ((i & signalCheckpointForJoin) == (signalCheckpointForJoin - 1)) {
 			// Trigger Consume for checking the OOM Action signal
 			memDelta += int64(cap(matched))*rowSize + int64(cap(matchedPtrs))*rowPtrSize - matchedDataSize
 			matchedDataSize = int64(cap(matched))*rowSize + int64(cap(matchedPtrs))*rowPtrSize
