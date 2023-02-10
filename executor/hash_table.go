@@ -270,6 +270,9 @@ func (c *hashRowContainer) GetMatchedRowsAndPtrs(probeKey uint64, probeRow chunk
 			memDelta += lastChunkSize
 		}
 		lastChunkBufPointer = c.chkBuf
+		if i%1000 == 0 {
+			logutil.BgLogger().Info("testJoinOOM", zap.Any("i", i))
+		}
 		if needTrackMemUsage && ((i & signalCheckpointForJoin) == (signalCheckpointForJoin - 1)) {
 			// Trigger Consume for checking the OOM Action signal
 			memDelta += int64(cap(matched))*rowSize + int64(cap(matchedPtrs))*rowPtrSize - matchedDataSize
