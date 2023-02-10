@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/util/logutil"
+	"go.uber.org/zap"
 	"runtime/trace"
 	"strconv"
 	"sync/atomic"
@@ -394,6 +396,7 @@ func (fetcher *probeSideTupleFetcher) handleProbeSideFetcherPanic(r interface{})
 
 func (w *probeWorker) handleProbeWorkerPanic(r interface{}) {
 	if r != nil {
+		logutil.BgLogger().Info("testJoinOOM, probe panic", zap.Any("worker id", w.workerID))
 		w.hashJoinCtx.joinResultCh <- &hashjoinWorkerResult{err: errors.Errorf("probeWorker[%d] meets error: %v", w.workerID, r)}
 	}
 }
@@ -1129,6 +1132,7 @@ func (e *HashJoinExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 		return nil
 	}
 	if result.err != nil {
+		logutil.BgLogger().Info("testJoinOOM, Next() get error")
 		e.finished.Store(true)
 		return result.err
 	}

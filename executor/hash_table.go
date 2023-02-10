@@ -16,6 +16,8 @@ package executor
 
 import (
 	"fmt"
+	"github.com/pingcap/tidb/util/logutil"
+	"go.uber.org/zap"
 	"hash"
 	"hash/fnv"
 	"sync/atomic"
@@ -245,6 +247,7 @@ func (c *hashRowContainer) GetMatchedRowsAndPtrs(probeKey uint64, probeRow chunk
 	)
 	c.chkBuf = nil
 	c.memTracker.Consume(-c.chkBufSizeForOneProbe)
+	logutil.BgLogger().Info("test", zap.Any("need tarck", needTrackMemUsage), zap.Any("cap", cap(innerPtrs)))
 	if needTrackMemUsage {
 		c.memTracker.Consume(int64(cap(innerPtrs)) * rowPtrSize)
 		defer c.memTracker.Consume(-int64(cap(innerPtrs))*rowPtrSize + memDelta)
