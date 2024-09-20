@@ -1144,8 +1144,8 @@ const (
 	DefTiDBCostModelVer                          = 2
 	DefTiDBServerMemoryLimitSessMinSize          = 128 << 20
 	DefTiDBMergePartitionStatsConcurrency        = 1
-	DefTiDBServerMemoryLimitGCTrigger            = 0.7
-	DefTiDBEnableGOGCTuner                       = true
+	DefTiDBServerMemoryLimitGCTrigger            = 1.0
+	DefTiDBEnableGOGCTuner                       = false
 	// DefTiDBGOGCTunerThreshold is to limit TiDBGOGCTunerThreshold.
 	DefTiDBGOGCTunerThreshold                float64 = 0.6
 	DefTiDBOptPrefixIndexSingleScan                  = true
@@ -1227,7 +1227,7 @@ var (
 
 	// DefTiDBServerMemoryLimit indicates the default value of TiDBServerMemoryLimit(TotalMem * 80%).
 	// It should be a const and shouldn't be modified after tidb is started.
-	DefTiDBServerMemoryLimit           = serverMemoryLimitDefaultValue()
+	DefTiDBServerMemoryLimit           = "200GB"
 	GOGCTunerThreshold                 = atomic.NewFloat64(DefTiDBGOGCTunerThreshold)
 	PasswordValidationLength           = atomic.NewInt32(8)
 	PasswordValidationMixedCaseCount   = atomic.NewInt32(1)

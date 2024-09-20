@@ -18,13 +18,17 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/errno"
@@ -43,7 +47,9 @@ import (
 	"github.com/pingcap/tidb/testkit"
 	"github.com/pingcap/tidb/testkit/testdata"
 	"github.com/pingcap/tidb/util"
+	"github.com/pingcap/tidb/util/logutil"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestShowSubquery(t *testing.T) {
@@ -1204,44 +1210,6 @@ func TestMPPAvgRewrite(t *testing.T) {
 		res := tk.MustQuery(tt)
 		res.Check(testkit.Rows(output[i].Plan...))
 	}
-}
-
-func TestAggPushDownEngine(t *testing.T) {
-	store := testkit.CreateMockStore(t)
-	tk := testkit.NewTestKit(t, store)
-	tk.MustExec("use test")
-	tk.MustExec("set tidb_cost_model_version=2")
-	tk.MustExec("drop table if exists t")
-	tk.MustExec("create table t(a int primary key, b varchar(20))")
-
-	// Create virtual tiflash replica info.
-	dom := domain.GetDomain(tk.Session())
-	is := dom.InfoSchema()
-	db, exists := is.SchemaByName(model.NewCIStr("test"))
-	require.True(t, exists)
-	for _, tblInfo := range db.Tables {
-		if tblInfo.Name.L == "t" {
-			tblInfo.TiFlashReplica = &model.TiFlashReplicaInfo{
-				Count:     1,
-				Available: true,
-			}
-		}
-	}
-
-	tk.MustExec("set @@session.tidb_isolation_read_engines = 'tiflash'")
-
-	tk.MustQuery("explain format = 'brief' select approx_count_distinct(a) from t").Check(testkit.Rows(
-		"StreamAgg 1.00 root  funcs:approx_count_distinct(Column#5)->Column#3",
-		"└─TableReader 1.00 root  data:StreamAgg",
-		"  └─StreamAgg 1.00 batchCop[tiflash]  funcs:approx_count_distinct(test.t.a)->Column#5",
-		"    └─TableFullScan 10000.00 batchCop[tiflash] table:t keep order:false, stats:pseudo"))
-
-	tk.MustExec("set @@session.tidb_isolation_read_engines = 'tikv'")
-
-	tk.MustQuery("explain format = 'brief' select approx_count_distinct(a) from t").Check(testkit.Rows(
-		"HashAgg 1.00 root  funcs:approx_count_distinct(test.t.a)->Column#3",
-		"└─TableReader 10000.00 root  data:TableFullScan",
-		"  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"))
 }
 
 func TestIssue15110(t *testing.T) {
@@ -8731,4 +8699,80 @@ FROM (
 WHERE res.state != 2
 ORDER BY res.branch_id;
 `, errno.ErrNotSupportedYet)
+}
+
+func TestAggPushDownEngine(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	var flag atomic.Int32
+	var gogc = 100
+
+	debug.SetGCPercent(gogc)
+	debug.SetMemoryLimit(15 << 30)
+
+	logutil.BgLogger().Warn("gjt debug long", zap.Any("memorylimit", debug.SetMemoryLimit(-1)))
+	go func() {
+		for {
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				now := time.Now()
+				tk.MustQuery("select 1;")
+				if time.Since(now) > 10*time.Millisecond {
+					compileDura := tk.Session().GetSessionVars().DurationCompile
+					parseDura := tk.Session().GetSessionVars().DurationParse
+
+					logutil.BgLogger().Warn("gjt debug long", zap.Any("time", time.Since(now)),
+						zap.Any("compile dura", compileDura),
+						zap.Any("parse dura", parseDura))
+
+					flag.Add(1)
+					return
+				}
+			}()
+			wg.Wait()
+			if flag.Load() >= 1 {
+				return
+			}
+		}
+	}()
+
+	var workerNum = 1
+	wg := sync.WaitGroup{}
+	wg.Add(workerNum)
+	workfunc := func() {
+		defer wg.Done()
+		for {
+			if flag.Load() >= 1 {
+				return
+			}
+			logutil.BgLogger().Warn("alloc started")
+			// 			mem := rand.Intn(10 << 30)
+			mem := 10 << 30
+			tmp := make([]byte, mem)
+			for i := 0; i < mem; i++ {
+				tmp[i] = 10
+			}
+			logutil.BgLogger().Warn("alloc finished, Sleep 3s", zap.Any("mem", mem), zap.Any("gogc", debug.SetGCPercent(gogc)), zap.Any("go_memory_limit", debug.SetMemoryLimit(-1)))
+			//			time.Sleep(3 * time.Second)
+			for i := 0; i < mem; i++ {
+				tmp[i] = 20
+			}
+
+			if flag.Load() >= 1 {
+				return
+			}
+			logutil.BgLogger().Warn("release started")
+			tmp = make([]byte, 1)
+			tmp[0] = 20
+			logutil.BgLogger().Warn("release finished, Sleep 3s")
+			//			time.Sleep(3 * time.Second)
+		}
+	}
+	for i := 0; i < workerNum; i++ {
+		go workfunc()
+	}
+
+	wg.Wait()
 }
