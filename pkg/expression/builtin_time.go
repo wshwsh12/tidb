@@ -1817,6 +1817,7 @@ func evalFromUnixTime(ctx EvalContext, fsp int, unixTimeStamp *types.MyDecimal) 
 	if fsp < 0 {
 		fsp = types.MaxFsp
 	}
+	go
 
 	tc := typeCtx(ctx)
 	tmp := time.Unix(integralPart, fractionalPart).In(tc.Location())
