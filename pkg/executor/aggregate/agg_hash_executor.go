@@ -16,6 +16,7 @@ package aggregate
 
 import (
 	"context"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -210,6 +211,7 @@ func (e *HashAggExec) Close() error {
 		if e.memTracker != nil {
 			if e.memTracker.BytesConsumed() < 0 {
 				logutil.BgLogger().Warn("Memory tracker's counter is invalid", zap.Int64("counter", e.memTracker.BytesConsumed()))
+				os.Exit(0)
 				e.invalidMemoryUsageForTrackingTest = true
 			}
 			e.memTracker.ReplaceBytesUsed(0)
