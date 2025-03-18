@@ -62,7 +62,8 @@ type DataSource struct {
 	PushedDownConds []expression.Expression `hash64-equals:"true"`
 	// AllConds contains all the filters on this table. For now it's maintained
 	// in predicate push down and used in partition pruning/index merge.
-	AllConds []expression.Expression `hash64-equals:"true"`
+	AllConds           []expression.Expression    `hash64-equals:"true"`
+	FulltextSearchExpr *expression.ScalarFunction `hash64-equals:"true"`
 
 	StatisticTable *statistics.Table
 	TableStats     *property.StatsInfo

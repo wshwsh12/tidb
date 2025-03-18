@@ -507,6 +507,12 @@ func (op *DataSource) Hash64(h base.Hasher) {
 			one.Hash64(h)
 		}
 	}
+	if op.FulltextSearchExpr == nil {
+		h.HashByte(base.NilFlag)
+	} else {
+		h.HashByte(base.NotNilFlag)
+		op.FulltextSearchExpr.Hash64(h)
+	}
 	h.HashInt64(int64(op.PreferStoreType))
 	h.HashBool(op.IsForUpdateRead)
 }
@@ -547,6 +553,9 @@ func (op *DataSource) Equals(other any) bool {
 		if !one.Equals(op2.AllConds[i]) {
 			return false
 		}
+	}
+	if !op.FulltextSearchExpr.Equals(op2.FulltextSearchExpr) {
+		return false
 	}
 	if op.PreferStoreType != op2.PreferStoreType {
 		return false
