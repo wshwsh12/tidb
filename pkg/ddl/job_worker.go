@@ -332,6 +332,7 @@ func JobNeedGC(job *model.Job) bool {
 			}
 			// If it's a columnar index, it needn't to store key ranges to gc_delete_range.
 			// We don't support drop columnar index in multi-schema, so we only check the first one.
+			// TODO: fulltext need to set the IsColumar
 			if args.IndexArgs[0].IsColumnar {
 				return false
 			}
@@ -933,6 +934,8 @@ func (w *worker) runOneJobStep(
 		ver, err = w.onCreateIndex(jobCtx, job, true)
 	case model.ActionAddVectorIndex:
 		ver, err = w.onCreateVectorIndex(jobCtx, job)
+	case model.ActionAddFulltextIndex:
+		ver, err = w.onCreateFulltextIndex(jobCtx, job)
 	case model.ActionDropIndex, model.ActionDropPrimaryKey:
 		ver, err = onDropIndex(jobCtx, job)
 	case model.ActionRenameIndex:

@@ -127,6 +127,7 @@ type InfoSyncer struct {
 	tiflashReplicaManager TiFlashReplicaManager
 	resourceManagerClient pd.ResourceManagerClient
 	infoCache             infoschemaMinTS
+	ticiManager           TiCIManager
 }
 
 // ServerInfo is server static information.
@@ -241,6 +242,7 @@ func GlobalInfoSyncerInit(
 	is.initScheduleManager()
 	is.initTiFlashReplicaManager(codec)
 	is.initResourceManagerClient(pdCli)
+	is.initTiCIManagerCtx()
 	setGlobalInfoSyncer(is)
 	return is, nil
 }
@@ -287,6 +289,9 @@ func (is *InfoSyncer) initPlacementManager() {
 	is.placementManager = &PDPlacementManager{is.pdHTTPCli}
 }
 
+func (is *InfoSyncer) initTiCIManagerCtx() TiCIManager {
+	return &TiCIManagerCtx{}
+}
 func (is *InfoSyncer) initResourceManagerClient(pdCli pd.Client) {
 	var cli pd.ResourceManagerClient = pdCli
 	if pdCli == nil {
@@ -1141,6 +1146,26 @@ func GetLabelRules(ctx context.Context, ruleIDs []string) (map[string]*label.Rul
 
 // SyncTiFlashTableSchema syncs TiFlash table schema.
 func SyncTiFlashTableSchema(ctx context.Context, tableID int64) error {
+	is, err := getGlobalInfoSyncer()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tikvStats, err := is.tiflashReplicaManager.GetStoresStat(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tiflashStores := make([]pdhttp.StoreInfo, 0, len(tikvStats.Stores))
+	for _, store := range tikvStats.Stores {
+		if engine.IsTiFlashHTTPResp(&store.Store) {
+			tiflashStores = append(tiflashStores, store)
+		}
+	}
+	return is.tiflashReplicaManager.SyncTiFlashTableSchema(tableID, tiflashStores)
+}
+
+// TODO: fill the function
+// Create fulltext index on TiCI
+func CreateFulltextIndexOnTiCI(ctx context.Context, tableID int64) error {
 	is, err := getGlobalInfoSyncer()
 	if err != nil {
 		return errors.Trace(err)
