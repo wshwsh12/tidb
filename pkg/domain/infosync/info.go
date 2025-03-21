@@ -136,7 +136,9 @@ type ServerInfo struct {
 	ServerVersionInfo
 	ID             string            `json:"ddl_id"`
 	IP             string            `json:"ip"`
+	TiCIIP         string            `json:"tici_ip"`
 	Port           uint              `json:"listening_port"`
+	TiCIPort       uint              `json:"tici_port"`
 	StatusPort     uint              `json:"status_port"`
 	Lease          string            `json:"lease"`
 	StartTimestamp int64             `json:"start_timestamp"`
@@ -290,8 +292,10 @@ func (is *InfoSyncer) initPlacementManager() {
 }
 
 func (is *InfoSyncer) initTiCIManagerCtx() TiCIManager {
+
 	return &TiCIManagerCtx{}
 }
+
 func (is *InfoSyncer) initResourceManagerClient(pdCli pd.Client) {
 	var cli pd.ResourceManagerClient = pdCli
 	if pdCli == nil {
@@ -1060,7 +1064,9 @@ func getServerInfo(id string, serverIDGetter func() uint64) *ServerInfo {
 	info := &ServerInfo{
 		ID:             id,
 		IP:             cfg.AdvertiseAddress,
+		TiCIIP:         cfg.TiCIHost,
 		Port:           cfg.Port,
+		TiCIPort:       cfg.TiCIPort,
 		StatusPort:     cfg.Status.StatusPort,
 		Lease:          cfg.Lease,
 		StartTimestamp: time.Now().Unix(),

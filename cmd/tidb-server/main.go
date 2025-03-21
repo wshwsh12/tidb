@@ -100,8 +100,10 @@ const (
 	nmStore            = "store"
 	nmStorePath        = "path"
 	nmHost             = "host"
+	nmTiCIHost         = "tici-host"
 	nmAdvertiseAddress = "advertise-address"
 	nmPort             = "P"
+	nmTiCIPort         = "tici-p"
 	nmCors             = "cors"
 	nmSocket           = "socket"
 	nmRunDDL           = "run-ddl"
@@ -149,6 +151,8 @@ var (
 	host             *string
 	advertiseAddress *string
 	port             *string
+	ticiHost         *string
+	ticiPort         *string
 	cors             *string
 	socket           *string
 	enableBinlog     *bool
@@ -204,8 +208,10 @@ func initFlagSet() *flag.FlagSet {
 	store = fset.String(nmStore, string(config.StoreTypeUniStore), fmt.Sprintf("registered store name, %v", config.StoreTypeList()))
 	storePath = fset.String(nmStorePath, "/tmp/tidb", "tidb storage path")
 	host = fset.String(nmHost, "0.0.0.0", "tidb server host")
+	ticiHost = fset.String(nmTiCIHost, "0.0.0.0", "tici server host")
 	advertiseAddress = fset.String(nmAdvertiseAddress, "", "tidb server advertise IP")
 	port = fset.String(nmPort, "4000", "tidb server port")
+	ticiPort = fset.String(nmTiCIPort, "50051", "tici server port")
 	cors = fset.String(nmCors, "", "tidb server allow cors origin")
 	socket = fset.String(nmSocket, "/tmp/tidb-{Port}.sock", "The socket file to use for connection.")
 	runDDL = flagBoolean(fset, nmRunDDL, true, "run ddl worker on this tidb-server")
@@ -492,6 +498,9 @@ func overrideConfig(cfg *config.Config, fset *flag.FlagSet) {
 	if actualFlags[nmHost] {
 		cfg.Host = *host
 	}
+	if actualFlags[nmHost] {
+		cfg.TiCIHost = *ticiHost
+	}
 	if actualFlags[nmAdvertiseAddress] {
 		var err error
 		if len(strings.Split(*advertiseAddress, " ")) > 1 {
@@ -512,6 +521,12 @@ func overrideConfig(cfg *config.Config, fset *flag.FlagSet) {
 		p, err = strconv.Atoi(*port)
 		terror.MustNil(err)
 		cfg.Port = uint(p)
+	}
+	if actualFlags[nmTiCIPort] {
+		var p int
+		p, err = strconv.Atoi(*ticiPort)
+		terror.MustNil(err)
+		cfg.TiCIPort = uint(p)
 	}
 	if actualFlags[nmCors] {
 		cfg.Cors = *cors
@@ -772,6 +787,7 @@ func setGlobalVars() {
 	variable.SetSysVar(vardef.TiDBOptDistinctAggPushDown, variable.BoolToOnOff(cfg.Performance.DistinctAggPushDown))
 	variable.SetSysVar(vardef.TiDBOptProjectionPushDown, variable.BoolToOnOff(cfg.Performance.ProjectionPushDown))
 	variable.SetSysVar(vardef.Port, fmt.Sprintf("%d", cfg.Port))
+
 	cfg.Socket = strings.Replace(cfg.Socket, "{Port}", fmt.Sprintf("%d", cfg.Port), 1)
 	variable.SetSysVar(vardef.Socket, cfg.Socket)
 	variable.SetSysVar(vardef.DataDir, cfg.Path)
