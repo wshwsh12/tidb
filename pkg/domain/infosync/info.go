@@ -52,6 +52,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/hack"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/versioninfo"
+	"github.com/tici/proto/indexer"
 	"github.com/tikv/client-go/v2/oracle"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
@@ -59,6 +60,8 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -127,7 +130,8 @@ type InfoSyncer struct {
 	tiflashReplicaManager TiFlashReplicaManager
 	resourceManagerClient pd.ResourceManagerClient
 	infoCache             infoschemaMinTS
-	ticiManager           TiCIManager
+	ticiClient            *grpc.ClientConn
+	tiCIManagerCtx        TiCIManagerCtx
 }
 
 // ServerInfo is server static information.
@@ -239,6 +243,11 @@ func GlobalInfoSyncerInit(
 	if err != nil {
 		return nil, err
 	}
+	is.ticiClient, err = grpc.NewClient(fmt.Sprintf("%s:%d", is.info.TiCIIP, is.info.TiCIPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+
 	is.initLabelRuleManager()
 	is.initPlacementManager()
 	is.initScheduleManager()
@@ -255,6 +264,7 @@ func (is *InfoSyncer) init(ctx context.Context, skipRegisterToDashboard bool) er
 	if err != nil {
 		return err
 	}
+
 	if skipRegisterToDashboard {
 		return nil
 	}
@@ -291,9 +301,8 @@ func (is *InfoSyncer) initPlacementManager() {
 	is.placementManager = &PDPlacementManager{is.pdHTTPCli}
 }
 
-func (is *InfoSyncer) initTiCIManagerCtx() TiCIManager {
-
-	return &TiCIManagerCtx{}
+func (is *InfoSyncer) initTiCIManagerCtx() {
+	is.tiCIManagerCtx = TiCIManagerCtx{indexServiceClient: indexer.NewIndexerServiceClient(is.ticiClient)}
 }
 
 func (is *InfoSyncer) initResourceManagerClient(pdCli pd.Client) {
@@ -1171,22 +1180,59 @@ func SyncTiFlashTableSchema(ctx context.Context, tableID int64) error {
 
 // TODO: fill the function
 // Create fulltext index on TiCI
-func CreateFulltextIndexOnTiCI(ctx context.Context, tableID int64) error {
+func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, indexInfo *model.IndexInfo, schemaName string) error {
 	is, err := getGlobalInfoSyncer()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	tikvStats, err := is.tiflashReplicaManager.GetStoresStat(ctx)
+	// 	// Index information
+	// IndexInfo *IndexInfo `protobuf:"bytes,1,opt,name=index_info,json=indexInfo,proto3" json:"index_info,omitempty"`
+	// Table information
+	// TableInfo *TableInfo `protobuf:"bytes,2,opt,name=table_info,json=tableInfo,proto3" json:"table_info,omitempty"`
+	/*
+				// Table ID
+			TableId int64 `protobuf:"varint,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
+			// Index ID
+			IndexId int64 `protobuf:"varint,2,opt,name=index_id,json=indexId,proto3" json:"index_id,omitempty"`
+			// Index name
+			IndexName string `protobuf:"bytes,3,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+			// Index type (fulltext, custom)
+			IndexType IndexType `protobuf:"varint,4,opt,name=index_type,json=indexType,proto3,enum=indexer.IndexType" json:"index_type,omitempty"`
+			// Index columns
+			Columns []*ColumnInfo `protobuf:"bytes,5,rep,name=columns,proto3" json:"columns,omitempty"`
+			// Whether the index is unique
+			IsUnique bool `protobuf:"varint,6,opt,name=is_unique,json=isUnique,proto3" json:"is_unique,omitempty"`
+			// Parser information
+			ParserInfo *ParserInfo `protobuf:"bytes,7,opt,name=parser_info,json=parserInfo,proto3" json:"parser_info,omitempty"`
+
+				// Table ID
+		TableId int64 `protobuf:"varint,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
+		// Table name
+		TableName string `protobuf:"bytes,2,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
+		// Database name
+		DatabaseName string `protobuf:"bytes,3,opt,name=database_name,json=databaseName,proto3" json:"database_name,omitempty"`
+		// Table version
+		Version int64 `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
+		// Column information
+		Columns []*ColumnInfo `protobuf:"bytes,5,rep,name=columns,proto3" json:"columns,omitempty"`
+	*/
+
+	req := &indexer.CreateIndexRequest{
+		IndexInfo: &indexer.IndexInfo{},
+		TableInfo: &indexer.TableInfo{
+			TableId:      tblInfo.ID,
+			TableName:    tblInfo.Name.L,
+			DatabaseName: schemaName,
+			Version:      int64(tblInfo.Version),
+			// Columns: [],
+		},
+	}
+	resp, err := is.tiCIManagerCtx.indexServiceClient.CreateIndex(ctx, req)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
-	tiflashStores := make([]pdhttp.StoreInfo, 0, len(tikvStats.Stores))
-	for _, store := range tikvStats.Stores {
-		if engine.IsTiFlashHTTPResp(&store.Store) {
-			tiflashStores = append(tiflashStores, store)
-		}
-	}
-	return is.tiflashReplicaManager.SyncTiFlashTableSchema(tableID, tiflashStores)
+	fmt.Println(resp)
+	return nil
 }
 
 // CalculateTiFlashProgress calculates TiFlash replica progress

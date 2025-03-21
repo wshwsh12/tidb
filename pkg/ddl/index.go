@@ -358,7 +358,7 @@ func BuildIndexInfo(
 	}
 
 	if isFulltext {
-		fulltextInfo, _, err := buildFulltextInfoWithCheck(indexPartSpecifications, tblInfo)
+		fulltextInfo, _, err := buildFulltextInfoWithCheck(indexOption, tblInfo)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -395,8 +395,10 @@ func BuildIndexInfo(
 }
 
 // TODO: fill the function
-func buildFulltextInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecification, tblInfo *model.TableInfo) (*model.FulltextIndexInfo, string, error) {
-	return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("unsupported no function")
+func buildFulltextInfoWithCheck(indexOption *ast.IndexOption, tblInfo *model.TableInfo) (*model.FulltextIndexInfo, string, error) {
+	return &model.FulltextIndexInfo{
+		ParserType: model.ParserType(indexOption.ParserName.L),
+	}, "", nil
 }
 
 func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecification,
@@ -885,15 +887,6 @@ func (w *worker) onCreateFulltextIndex(jobCtx *jobContext, job *model.Job) (ver 
 		return ver, errors.Trace(err)
 	}
 	a := args.IndexArgs[0]
-	a.IndexPartSpecifications[0].Expr, err = generatedexpr.ParseExpression(a.FuncExpr)
-	if err != nil {
-		job.State = model.JobStateCancelled
-		return ver, errors.Trace(err)
-	}
-	defer func() {
-		a.IndexPartSpecifications[0].Expr = nil
-	}()
-
 	indexInfo, err := checkAndBuildIndexInfo(job, tblInfo, false, true, false, a)
 	if err != nil {
 		return ver, errors.Trace(err)
@@ -943,7 +936,7 @@ func (w *worker) onCreateFulltextIndex(jobCtx *jobContext, job *model.Job) (ver 
 			if err != nil {
 				return ver, errors.Trace(err)
 			}
-			err = infosync.CreateFulltextIndexOnTiCI(jobCtx.stepCtx, tbl.Meta().ID)
+			err = infosync.CreateFulltextIndexOnTiCI(jobCtx.stepCtx, tblInfo, indexInfo, job.SchemaName)
 			if err != nil {
 				return ver, errors.Trace(err)
 			}

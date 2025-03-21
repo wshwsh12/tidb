@@ -14,7 +14,6 @@ type TiCIManager interface {
 
 // TiCIManagerCtx manages placement with pd and replica progress for TiFlash.
 type TiCIManagerCtx struct {
-	ctx                context.Context
 	indexServiceClient indexer.IndexerServiceClient
 }
 

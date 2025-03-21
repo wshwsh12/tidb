@@ -165,6 +165,11 @@ func (index *IndexInfo) IsTiFlashLocalIndex() bool {
 	return index.VectorInfo != nil
 }
 
+// IsFulltextIndex checks whether the index is a TiCI local index.
+func (index *IndexInfo) IsFulltextIndex() bool {
+	return index.FulltextInfo != nil
+}
+
 // FindIndexByColumns find IndexInfo in indices which is cover the specified columns.
 func FindIndexByColumns(tbInfo *TableInfo, indices []*IndexInfo, cols ...ast.CIStr) *IndexInfo {
 	for _, index := range indices {

@@ -4819,7 +4819,7 @@ func (e *executor) createFulltextIndex(ctx sessionctx.Context, ti ast.Ident, ind
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, funcExpr, err := buildFulltextInfoWithCheck(indexPartSpecifications, tblInfo)
+	_, funcExpr, err := buildFulltextInfoWithCheck(indexOption, tblInfo)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -4843,7 +4843,7 @@ func (e *executor) createFulltextIndex(ctx sessionctx.Context, ti ast.Ident, ind
 
 	job := buildAddIndexJobWithoutTypeAndArgs(ctx, schema, t)
 	job.Version = model.GetJobVerInUse()
-	job.Type = model.ActionAddVectorIndex
+	job.Type = model.ActionAddFulltextIndex
 	indexPartSpecifications[0].Expr = nil
 
 	// TODO: support CDCWriteSource
