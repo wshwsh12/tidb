@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"fmt"
 
+	"slices"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/infoschema"
@@ -40,6 +42,7 @@ import (
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/types"
 	h "github.com/pingcap/tidb/pkg/util/hint"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/intset"
 	"github.com/pingcap/tidb/pkg/util/plancodec"
 )
@@ -170,6 +173,7 @@ func (ds *DataSource) PredicatePushDown(predicates []expression.Expression, opt 
 	}
 	ds.PushedDownConds, predicates = expression.PushDownExprs(util.GetPushDownCtx(ds.SCtx()), predicates, kv.UnSpecified)
 	appendDataSourcePredicatePushDownTraceStep(ds, opt)
+
 	return predicates, ds
 }
 
@@ -621,4 +625,87 @@ func preferKeyColumnFromTable(dataSource *DataSource, originColumns []*expressio
 		}
 	}
 	return resultColumn, resultColumnInfo
+}
+
+// checkFulltextSearchPredicates checks whether the fulltext search predicates is a valid one can be be converted to a fulltext index scan.
+// If the fulltext search predicates is valid, it will be returned and removed from the remained predicates.
+// If the fulltext search predicates is invalid, it will return nil and remained predicates.
+// If there are more than one fulltext search predicates, it will return nil and remained predicates.
+// If the fulltext search predicates is valid but the fulltext index can't be used, it will return nil and remained predicates.
+// The 4th return value indicates whether the search is valid. We only support limited cases for now. Sometimes the sql is not executable.
+func (ds *DataSource) checkFulltextSearchPredicates(remained []expression.Expression) (
+	*expression.ScalarFunction,
+	*model.IndexInfo,
+	[]expression.Expression,
+	bool,
+) {
+	ftsIndexes := make([]*model.IndexInfo, 0, 3)
+	for _, index := range ds.TableInfo.Indices {
+		if index.FulltextInfo != nil {
+			ftsIndexes = append(ftsIndexes, index)
+		}
+	}
+	var (
+		matchedExpr  *expression.ScalarFunction
+		matchedIndex *model.IndexInfo
+	)
+	for i := len(remained) - 1; i >= 0; i-- {
+		if sf, ok := remained[i].(*expression.ScalarFunction); ok && sf.FuncName.L == expression.FulltextSearch {
+			if matchedExpr != nil {
+				return nil, nil, nil, true
+			}
+			// Check whether the fulltext index can be used.
+			for _, index := range ftsIndexes {
+				argLen := len(sf.GetArgs())
+				colCnt := argLen - 2
+				allMatch := true
+			checkColLoop:
+				for j := range colCnt {
+					col := sf.GetArgs()[j].(*expression.Column)
+					for _, idxCol := range index.Columns {
+						if ds.TableInfo.Columns[idxCol.Offset].ID == col.ID {
+							continue checkColLoop
+						}
+					}
+					allMatch = false
+					break
+				}
+				if !allMatch {
+					return nil, nil, nil, true
+				}
+				matchedExpr = sf
+				matchedIndex = index
+				remained = slices.Delete(remained, i, i+1)
+			}
+		}
+	}
+	return matchedExpr, matchedIndex, remained, false
+}
+
+// AnalyzeFulltextSearchPath analyzes the fulltext search path.
+// If the fulltext search path is valid, it will be the only path in the possible access paths.
+func (ds *DataSource) AnalyzeFulltextSearchPath() bool {
+	matchedExpr, matchedIndex, remained, valid := ds.checkFulltextSearchPredicates(ds.AllConds)
+	if !valid {
+		return false
+	}
+	if matchedExpr == nil {
+		return true
+	}
+	for _, path := range ds.PossibleAccessPaths {
+		if path.IsIntHandlePath {
+			continue
+		}
+		if path.Index.ID == matchedIndex.ID {
+			ds.PossibleAccessPaths[0] = path
+			ds.PossibleAccessPaths = ds.PossibleAccessPaths[:1]
+			path.AccessConds = append(path.AccessConds, matchedExpr)
+			path.TableFilters = remained
+			path.CountAfterAccess = 50
+			path.CountAfterIndex = 50
+			return true
+		}
+	}
+	intest.Assert(false, "fulltext search path should be found")
+	return true
 }

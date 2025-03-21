@@ -573,7 +573,7 @@ func tryAutoAnalyzeTable(
 	for _, idx := range tblInfo.Indices {
 		if idxStats := statsTbl.GetIdx(idx.ID); idxStats == nil && !statsTbl.ColAndIdxExistenceMap.HasAnalyzed(idx.ID, true) && idx.State == model.StatePublic {
 			// Columnar index doesn't need stats yet.
-			if idx.IsTiFlashLocalIndex() {
+			if idx.IsTiFlashLocalIndex() || idx.IsTiCI() {
 				continue
 			}
 			sqlWithIdx := sql + " index %n"
@@ -714,7 +714,7 @@ func tryAutoAnalyzePartitionTableInDynamicMode(
 			continue
 		}
 		// Columnar index doesn't need stats yet.
-		if idx.IsTiFlashLocalIndex() {
+		if idx.IsTiFlashLocalIndex() || idx.IsTiCI() {
 			continue
 		}
 		// Collect all the partition names that need to analyze.
