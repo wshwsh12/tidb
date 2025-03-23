@@ -1185,46 +1185,26 @@ func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, in
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// 	// Index information
-	// IndexInfo *IndexInfo `protobuf:"bytes,1,opt,name=index_info,json=indexInfo,proto3" json:"index_info,omitempty"`
-	// Table information
-	// TableInfo *TableInfo `protobuf:"bytes,2,opt,name=table_info,json=tableInfo,proto3" json:"table_info,omitempty"`
-	/*
-				// Table ID
-			TableId int64 `protobuf:"varint,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
-			// Index ID
-			IndexId int64 `protobuf:"varint,2,opt,name=index_id,json=indexId,proto3" json:"index_id,omitempty"`
-			// Index name
-			IndexName string `protobuf:"bytes,3,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-			// Index type (fulltext, custom)
-			IndexType IndexType `protobuf:"varint,4,opt,name=index_type,json=indexType,proto3,enum=indexer.IndexType" json:"index_type,omitempty"`
-			// Index columns
-			Columns []*ColumnInfo `protobuf:"bytes,5,rep,name=columns,proto3" json:"columns,omitempty"`
-			// Whether the index is unique
-			IsUnique bool `protobuf:"varint,6,opt,name=is_unique,json=isUnique,proto3" json:"is_unique,omitempty"`
-			// Parser information
-			ParserInfo *ParserInfo `protobuf:"bytes,7,opt,name=parser_info,json=parserInfo,proto3" json:"parser_info,omitempty"`
 
-				// Table ID
-		TableId int64 `protobuf:"varint,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
-		// Table name
-		TableName string `protobuf:"bytes,2,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
-		// Database name
-		DatabaseName string `protobuf:"bytes,3,opt,name=database_name,json=databaseName,proto3" json:"database_name,omitempty"`
-		// Table version
-		Version int64 `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
-		// Column information
-		Columns []*ColumnInfo `protobuf:"bytes,5,rep,name=columns,proto3" json:"columns,omitempty"`
-	*/
-
+	columns := make([]*indexer.ColumnInfo, 0)
 	req := &indexer.CreateIndexRequest{
-		IndexInfo: &indexer.IndexInfo{},
+		IndexInfo: &indexer.IndexInfo{
+			TableId:   tblInfo.ID,
+			IndexId:   indexInfo.ID,
+			IndexName: indexInfo.Name.L,
+			IndexType: indexer.IndexType_FULL_TEXT,
+			Columns:   columns,
+			IsUnique:  indexInfo.Unique,
+			ParserInfo: &indexer.ParserInfo{
+				ParserType: indexer.ParserType_DEFAULT_PARSER,
+			},
+		},
 		TableInfo: &indexer.TableInfo{
 			TableId:      tblInfo.ID,
 			TableName:    tblInfo.Name.L,
 			DatabaseName: schemaName,
 			Version:      int64(tblInfo.Version),
-			// Columns: [],
+			Columns:      columns,
 		},
 	}
 	resp, err := is.tiCIManagerCtx.indexServiceClient.CreateIndex(ctx, req)
