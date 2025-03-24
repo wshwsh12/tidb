@@ -1187,6 +1187,19 @@ func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, in
 	}
 
 	columns := make([]*indexer.ColumnInfo, 0)
+	for i := range indexInfo.Columns {
+		columns = append(columns, &indexer.ColumnInfo{
+			ColumnId:   indexInfo.ID,
+			ColumnName: indexInfo.Name.L,
+			Type:       int32(indexInfo.Tp),
+			// Collation: tblInfo.Collate,
+			ColumnLength: int32(indexInfo.Columns[i].Length),
+			Decimal:      int32(tblInfo.Columns[i].GetDecimal()),
+			DefaultVal:   tblInfo.Columns[i].DefaultValueBit,
+			IsPrimaryKey: indexInfo.Primary,
+			IsArray:      false,
+		})
+	}
 	req := &indexer.CreateIndexRequest{
 		IndexInfo: &indexer.IndexInfo{
 			TableId:   tblInfo.ID,
