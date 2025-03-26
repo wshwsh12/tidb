@@ -1178,7 +1178,8 @@ func SyncTiFlashTableSchema(ctx context.Context, tableID int64) error {
 	return is.tiflashReplicaManager.SyncTiFlashTableSchema(tableID, tiflashStores)
 }
 
-// Create fulltext index on TiCI
+// CreateFulltextIndexOnTiCI Create fulltext index on TiCI
+// TODO: create index by tiCIManager and refine the error message
 func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, indexInfo *model.IndexInfo, schemaName string) error {
 	is, err := getGlobalInfoSyncer()
 	if err != nil {

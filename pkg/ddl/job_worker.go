@@ -332,7 +332,6 @@ func JobNeedGC(job *model.Job) bool {
 			}
 			// If it's a columnar index, it needn't to store key ranges to gc_delete_range.
 			// We don't support drop columnar index in multi-schema, so we only check the first one.
-			// TODO: fulltext need to set the IsColumar
 			if args.IndexArgs[0].IsColumnar {
 				return false
 			}

@@ -107,9 +107,6 @@ func buildIndexColumns(ctx *metabuild.Context, columns []*model.ColumnInfo, inde
 		if isVector && col.FieldType.GetType() != mysql.TypeTiDBVectorFloat32 {
 			return nil, false, dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs(fmt.Sprintf("only support vector type, but this is type: %s", col.FieldType.String()))
 		}
-		// if isVector && col.FieldType.GetType() != mysql.typefulltext {
-		// 	return nil, false, dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs(fmt.Sprintf("only support vector type, but this is type: %s", col.FieldType.String()))
-		// }
 
 		// return error in strict sql mode
 		if err := checkIndexColumn(col, ip.Length, ctx != nil && (!ctx.GetSQLMode().HasStrictMode() || ctx.SuppressTooLongIndexErr()), isVector); err != nil {
@@ -394,7 +391,7 @@ func BuildIndexInfo(
 	return idxInfo, nil
 }
 
-// TODO: fill the function
+// TODO: fill buildFulltextInfoWithCheck
 func buildFulltextInfoWithCheck(indexOption *ast.IndexOption, tblInfo *model.TableInfo) (*model.FulltextIndexInfo, string, error) {
 	return &model.FulltextIndexInfo{
 		ParserType: model.ParserType(indexOption.ParserName.L),
@@ -988,7 +985,7 @@ func (w *worker) checkColumnarIndexProcessOnTiFlash(jobCtx *jobContext, job *mod
 	return true, ver, nil
 }
 
-// TODO
+// TODO: fulltext index not support yet
 func (w *worker) checkColumnarIndexProcessOnTiCI(jobCtx *jobContext, job *model.Job, tbl table.Table, indexInfo *model.IndexInfo,
 ) (done bool, ver int64, err error) {
 	err = w.checkColumnarIndexProcess(jobCtx, tbl, job, indexInfo)

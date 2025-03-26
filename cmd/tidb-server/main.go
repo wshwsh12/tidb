@@ -787,7 +787,6 @@ func setGlobalVars() {
 	variable.SetSysVar(vardef.TiDBOptDistinctAggPushDown, variable.BoolToOnOff(cfg.Performance.DistinctAggPushDown))
 	variable.SetSysVar(vardef.TiDBOptProjectionPushDown, variable.BoolToOnOff(cfg.Performance.ProjectionPushDown))
 	variable.SetSysVar(vardef.Port, fmt.Sprintf("%d", cfg.Port))
-
 	cfg.Socket = strings.Replace(cfg.Socket, "{Port}", fmt.Sprintf("%d", cfg.Port), 1)
 	variable.SetSysVar(vardef.Socket, cfg.Socket)
 	variable.SetSysVar(vardef.DataDir, cfg.Path)

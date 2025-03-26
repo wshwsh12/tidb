@@ -140,7 +140,6 @@ func expectedDeleteRangeCnt(ctx delRangeCntCtx, job *model.Job) (int, error) {
 			return 0, errors.Trace(err)
 		}
 		// If it's a columnar index, it needn't to store key ranges to gc_delete_range.
-		// TODO: fulltext need to check is columnar nor not.
 		if args.IndexArgs[0].IsColumnar {
 			return 0, nil
 		}
