@@ -766,6 +766,7 @@ func (e *IndexLookUpExecutor) startIndexWorker(ctx context.Context, initBatchSiz
 			SetConnIDAndConnAlias(e.dctx.ConnectionID, e.dctx.SessionAlias)
 
 		if e.index.FulltextInfo != nil || e.index.Name.L == "idx_ft" {
+			kvRanges[0][0].EndKey = kvRanges[0][0].StartKey.Next() // Only one key for one region request
 			builder.SetStoreType(kv.TiFlash)
 		}
 

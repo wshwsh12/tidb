@@ -505,11 +505,12 @@ func (p *PhysicalIndexScan) ToPB(_ *base.BuildPBContext, store kv.StoreType) (*t
 		//	Columns: util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
 		//}
 		idxExec := &tipb.TiCIScan{
-			TableId:      p.Table.ID,
-			IndexId:      p.Index.ID,
-			Columns:      util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
-			QueryJsonStr: &query_json_str,
-			Limit:        10,
+			TableId:       p.Table.ID,
+			IndexId:       p.Index.ID,
+			ReturnColumns: util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
+			QueryColumns:  util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
+			QueryJsonStr:  &query_json_str,
+			Limit:         10,
 		}
 		return &tipb.Executor{Tp: tipb.ExecType_TypeTiCIScan, TiciScan: idxExec, ExecutorId: &executorID}, nil
 
