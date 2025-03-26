@@ -1189,10 +1189,9 @@ func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, in
 	columns := make([]*indexer.ColumnInfo, 0)
 	for i := range indexInfo.Columns {
 		columns = append(columns, &indexer.ColumnInfo{
-			ColumnId:   indexInfo.ID,
-			ColumnName: indexInfo.Name.L,
-			Type:       int32(indexInfo.Tp),
-			// Collation: tblInfo.Collate,
+			ColumnId:     int64(indexInfo.Columns[i].Offset),
+			ColumnName:   indexInfo.Columns[i].Name.String(),
+			Type:         int32(indexInfo.Tp),
 			ColumnLength: int32(indexInfo.Columns[i].Length),
 			Decimal:      int32(tblInfo.Columns[i].GetDecimal()),
 			DefaultVal:   tblInfo.Columns[i].DefaultValueBit,
@@ -1226,7 +1225,7 @@ func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, in
 	}
 	if resp.Status != 0 {
 		logutil.BgLogger().Error("create fulltext index failed", zap.String("indexID", resp.IndexId), zap.String("errorMessage", resp.ErrorMessage))
-		return errors.New(resp.ErrorMessage)
+		return nil
 	}
 	logutil.BgLogger().Info("create fulltext index success", zap.String("indexID", resp.IndexId))
 
