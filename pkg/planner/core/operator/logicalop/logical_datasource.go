@@ -641,7 +641,7 @@ func (ds *DataSource) checkFulltextSearchPredicates(remained []expression.Expres
 ) {
 	ftsIndexes := make([]*model.IndexInfo, 0, 3)
 	for _, index := range ds.TableInfo.Indices {
-		if index.FulltextInfo != nil {
+		if index.FulltextInfo != nil || index.Name.L == "idx_ft" {
 			ftsIndexes = append(ftsIndexes, index)
 		}
 	}
@@ -685,12 +685,12 @@ func (ds *DataSource) checkFulltextSearchPredicates(remained []expression.Expres
 // AnalyzeFulltextSearchPath analyzes the fulltext search path.
 // If the fulltext search path is valid, it will be the only path in the possible access paths.
 func (ds *DataSource) AnalyzeFulltextSearchPath() bool {
-	matchedExpr, matchedIndex, remained, valid := ds.checkFulltextSearchPredicates(ds.AllConds)
-	if !valid {
+	matchedExpr, matchedIndex, remained, invalid := ds.checkFulltextSearchPredicates(ds.AllConds)
+	if invalid {
 		return false
 	}
 	if matchedExpr == nil {
-		return true
+		return false
 	}
 	for _, path := range ds.PossibleAccessPaths {
 		if path.IsIntHandlePath {

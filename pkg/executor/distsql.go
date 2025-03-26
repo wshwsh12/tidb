@@ -592,7 +592,7 @@ func (e *IndexLookUpExecutor) buildTableKeyRanges() (err error) {
 	} else {
 		physicalID := getPhysicalTableID(e.table)
 		var kvRanges *kv.KeyRanges
-		if e.index.ID == -1 {
+		if e.index.ID == -1 || e.index.Name.L == "idx_ft" { // Fake Table Range, because tiflash doesn't have index regions.
 			kvRanges, err = distsql.CommonHandleRangesToKVRanges(dctx, []int64{physicalID}, e.ranges)
 		} else {
 			kvRanges, err = distsql.IndexRangesToKVRangesWithInterruptSignal(dctx, physicalID, e.index.ID, e.ranges, e.memTracker, nil)
@@ -621,6 +621,13 @@ func (e *IndexLookUpExecutor) open(_ context.Context) error {
 	var err error
 	if e.corColInIdxSide {
 		e.dagPB.Executors, err = builder.ConstructListBasedDistExec(e.buildPBCtx, e.idxPlans)
+		if err != nil {
+			return err
+		}
+	}
+
+	if e.corColInIdxSide && e.index.Name.L == "idx_ft" {
+		e.dagPB.Executors, err = builder.ConstructListBasedDistExec2(e.buildPBCtx, e.idxPlans)
 		if err != nil {
 			return err
 		}
@@ -757,6 +764,10 @@ func (e *IndexLookUpExecutor) startIndexWorker(ctx context.Context, initBatchSiz
 			SetClosestReplicaReadAdjuster(newClosestReadAdjuster(e.dctx, &builder.Request, e.idxNetDataSize/float64(len(kvRanges)))).
 			SetMemTracker(tracker).
 			SetConnIDAndConnAlias(e.dctx.ConnectionID, e.dctx.SessionAlias)
+
+		if e.index.FulltextInfo != nil || e.index.Name.L == "idx_ft" {
+			builder.SetStoreType(kv.TiFlash)
+		}
 
 		worker.batchSize = e.calculateBatchSize(initBatchSize, worker.maxBatchSize)
 		if builder.Request.Paging.Enable && builder.Request.Paging.MinPagingSize < uint64(worker.batchSize) {

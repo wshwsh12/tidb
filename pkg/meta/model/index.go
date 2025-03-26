@@ -166,6 +166,7 @@ func (index *IndexInfo) IsTiFlashLocalIndex() bool {
 }
 
 func (index *IndexInfo) IsTiCI() bool {
+	return index.Name.L == "idx_ft"
 	return index.FulltextInfo != nil
 }
 

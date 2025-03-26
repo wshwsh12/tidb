@@ -1212,9 +1212,8 @@ func getPossibleAccessPaths(ctx base.PlanContext, tableHints *hint.PlanHints, in
 				if !tblInfo.TiFlashReplica.Available {
 					continue
 				}
-				path := genTiFlashPath(tblInfo)
+				path := &util.AccessPath{Index: index}
 				path.StoreType = kv.TiFlash
-				path.Index = index
 				publicPaths = append(publicPaths, path)
 				continue
 			}
@@ -1626,6 +1625,7 @@ func (b *PlanBuilder) buildPhysicalIndexLookUpReader(_ context.Context, dbName a
 		DBName:           dbName,
 		Columns:          idxColInfos,
 		Index:            idx,
+		FullText:         idx.Name.L == "idx_ft",
 		IdxCols:          idxCols,
 		IdxColLens:       idxColLens,
 		dataSourceSchema: idxColSchema.Clone(),

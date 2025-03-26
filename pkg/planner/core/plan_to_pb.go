@@ -481,7 +481,7 @@ func (e *PhysicalExchangeReceiver) ToPB(ctx *base.BuildPBContext, _ kv.StoreType
 }
 
 // ToPB implements PhysicalPlan ToPB interface.
-func (p *PhysicalIndexScan) ToPB(_ *base.BuildPBContext, _ kv.StoreType) (*tipb.Executor, error) {
+func (p *PhysicalIndexScan) ToPB(_ *base.BuildPBContext, store kv.StoreType) (*tipb.Executor, error) {
 	columns := make([]*model.ColumnInfo, 0, p.schema.Len())
 	tableColumns := p.Table.Cols()
 	for _, col := range p.schema.Columns {
@@ -497,6 +497,24 @@ func (p *PhysicalIndexScan) ToPB(_ *base.BuildPBContext, _ kv.StoreType) (*tipb.
 	if p.NeedCommonHandle {
 		pkColIDs = tables.TryGetCommonPkColumnIds(p.Table)
 	}
+	if store == kv.TiFlash {
+		executorID := p.ExplainID().String()
+		query_json_str := "test"
+		//idxExec := &tipb.TableScan{
+		//	TableId: p.Table.ID,
+		//	Columns: util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
+		//}
+		idxExec := &tipb.TiCIScan{
+			TableId:      p.Table.ID,
+			IndexId:      p.Index.ID,
+			Columns:      util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
+			QueryJsonStr: &query_json_str,
+			Limit:        10,
+		}
+		return &tipb.Executor{Tp: tipb.ExecType_TypeTiCIScan, TiciScan: idxExec, ExecutorId: &executorID}, nil
+
+	}
+
 	idxExec := &tipb.IndexScan{
 		TableId:          p.Table.ID,
 		IndexId:          p.Index.ID,

@@ -44,6 +44,18 @@ func ConstructListBasedDistExec(pctx *planctx.BuildPBContext, plans []plannercor
 	return executors, nil
 }
 
+func ConstructListBasedDistExec2(pctx *planctx.BuildPBContext, plans []plannercore.PhysicalPlan) ([]*tipb.Executor, error) {
+	executors := make([]*tipb.Executor, 0, len(plans))
+	for _, p := range plans {
+		execPB, err := p.ToPB(pctx, kv.TiFlash)
+		if err != nil {
+			return nil, err
+		}
+		executors = append(executors, execPB)
+	}
+	return executors, nil
+}
+
 // ConstructDAGReq constructs DAGRequest for physical plans
 func ConstructDAGReq(ctx sessionctx.Context, plans []plannercore.PhysicalPlan, storeType kv.StoreType) (dagReq *tipb.DAGRequest, err error) {
 	dagReq = &tipb.DAGRequest{}
