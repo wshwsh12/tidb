@@ -1185,17 +1185,31 @@ func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, in
 	if err != nil {
 		return errors.Trace(err)
 	}
-
-	columns := make([]*indexer.ColumnInfo, 0)
+	pkName := tblInfo.GetPkName()
+	indexColumns := make([]*indexer.ColumnInfo, 0)
 	for i := range indexInfo.Columns {
-		columns = append(columns, &indexer.ColumnInfo{
-			ColumnId:     int64(indexInfo.Columns[i].Offset),
-			ColumnName:   indexInfo.Columns[i].Name.String(),
-			Type:         int32(indexInfo.Tp),
-			ColumnLength: int32(indexInfo.Columns[i].Length),
+		offset := indexInfo.Columns[i].Offset
+		indexColumns = append(indexColumns, &indexer.ColumnInfo{
+			ColumnId:     tblInfo.Columns[offset].ID,
+			ColumnName:   tblInfo.Columns[offset].Name.String(),
+			Type:         int32(tblInfo.Columns[offset].GetType()),
+			ColumnLength: int32(tblInfo.Columns[offset].FieldType.StorageLength()),
+			Decimal:      int32(tblInfo.Columns[offset].GetDecimal()),
+			DefaultVal:   tblInfo.Columns[offset].DefaultValueBit,
+			IsPrimaryKey: pkName == tblInfo.Columns[offset].Name,
+			IsArray:      false,
+		})
+	}
+	tableColumns := make([]*indexer.ColumnInfo, 0)
+	for i := range tblInfo.Columns {
+		tableColumns = append(tableColumns, &indexer.ColumnInfo{
+			ColumnId:     tblInfo.Columns[i].ID,
+			ColumnName:   tblInfo.Columns[i].Name.String(),
+			Type:         int32(tblInfo.Columns[i].GetType()),
+			ColumnLength: int32(tblInfo.Columns[i].FieldType.StorageLength()),
 			Decimal:      int32(tblInfo.Columns[i].GetDecimal()),
 			DefaultVal:   tblInfo.Columns[i].DefaultValueBit,
-			IsPrimaryKey: indexInfo.Primary,
+			IsPrimaryKey: pkName == tblInfo.Columns[i].Name,
 			IsArray:      false,
 		})
 	}
@@ -1203,9 +1217,9 @@ func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, in
 		IndexInfo: &indexer.IndexInfo{
 			TableId:   tblInfo.ID,
 			IndexId:   indexInfo.ID,
-			IndexName: indexInfo.Name.L,
+			IndexName: indexInfo.Name.String(),
 			IndexType: indexer.IndexType_FULL_TEXT,
-			Columns:   columns,
+			Columns:   indexColumns,
 			IsUnique:  indexInfo.Unique,
 			ParserInfo: &indexer.ParserInfo{
 				ParserType: indexer.ParserType_DEFAULT_PARSER,
@@ -1216,7 +1230,7 @@ func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, in
 			TableName:    tblInfo.Name.L,
 			DatabaseName: schemaName,
 			Version:      int64(tblInfo.Version),
-			Columns:      columns,
+			Columns:      tableColumns,
 		},
 	}
 	resp, err := is.tiCIManagerCtx.indexServiceClient.CreateIndex(ctx, req)
