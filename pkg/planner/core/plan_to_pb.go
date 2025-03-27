@@ -499,18 +499,17 @@ func (p *PhysicalIndexScan) ToPB(_ *base.BuildPBContext, store kv.StoreType) (*t
 	}
 	if store == kv.TiFlash {
 		executorID := p.ExplainID().String()
-		query_json_str := "test"
-		//idxExec := &tipb.TableScan{
-		//	TableId: p.Table.ID,
-		//	Columns: util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
-		//}
+		query_columns := make([]*model.ColumnInfo, 0, len(p.prop.FullTextProp.QueryColumns))
+		for _, col := range p.prop.FullTextProp.QueryColumns {
+			query_columns = append(query_columns, FindColumnInfoByID(tableColumns, col.ID))
+		}
 		idxExec := &tipb.TiCIScan{
 			TableId:       p.Table.ID,
 			IndexId:       p.Index.ID,
 			ReturnColumns: util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
-			QueryColumns:  util.ColumnsToProto(columns, p.Table.PKIsHandle, true, false),
-			QueryJsonStr:  &query_json_str,
-			Limit:         10,
+			QueryColumns:  util.ColumnsToProto(query_columns, p.Table.PKIsHandle, true, false),
+			QueryJsonStr:  &p.prop.FullTextProp.QueryJSONStr,
+			Limit:         0,
 		}
 		return &tipb.Executor{Tp: tipb.ExecType_TypeTiCIScan, TiciScan: idxExec, ExecutorId: &executorID}, nil
 

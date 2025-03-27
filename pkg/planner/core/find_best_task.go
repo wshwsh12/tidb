@@ -1193,6 +1193,11 @@ func skylinePruning(ds *logicalop.DataSource, prop *property.PhysicalProperty) [
 	// tidb_opt_prefer_range_scan is the master switch to control index preferencing
 	preferRange := ds.SCtx().GetSessionVars().GetAllowPreferRangeScan()
 	for _, path := range ds.PossibleAccessPaths {
+		if path.Index != nil && path.Index.IsFulltextIndex() {
+			cand := getIndexCandidate(ds, path, prop)
+			candidates = append(candidates, cand)
+			continue
+		}
 		// We should check whether the possible access path is valid first.
 		if path.StoreType != kv.TiFlash && prop.IsFlashProp() {
 			continue
@@ -3005,6 +3010,10 @@ func getOriginalPhysicalTableScan(ds *logicalop.DataSource, prop *property.Physi
 
 func getOriginalPhysicalIndexScan(ds *logicalop.DataSource, prop *property.PhysicalProperty, path *util.AccessPath, isMatchProp bool, isSingleScan bool) *PhysicalIndexScan {
 	idx := path.Index
+	if path.Index.IsFulltextIndex() {
+		prop.FullTextProp.QueryColumns = path.QueryColumns
+		prop.FullTextProp.QueryJSONStr = path.QueryJSONStr
+	}
 	is := PhysicalIndexScan{
 		Table:            ds.TableInfo,
 		TableAsName:      ds.TableAsName,
@@ -3013,7 +3022,7 @@ func getOriginalPhysicalIndexScan(ds *logicalop.DataSource, prop *property.Physi
 		Index:            idx,
 		IdxCols:          path.IdxCols,
 		IdxColLens:       path.IdxColLens,
-		FullText:         idx.Name.L == "idx_ft",
+		FullText:         idx.IsFulltextIndex(),
 		AccessCondition:  path.AccessConds,
 		Ranges:           path.Ranges,
 		dataSourceSchema: ds.Schema(),

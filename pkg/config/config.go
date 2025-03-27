@@ -205,6 +205,8 @@ type Config struct {
 	IndexLimit                 int                     `toml:"index-limit" json:"index-limit"`
 	TableColumnCountLimit      uint32                  `toml:"table-column-count-limit" json:"table-column-count-limit"`
 	GracefulWaitBeforeShutdown int                     `toml:"graceful-wait-before-shutdown" json:"graceful-wait-before-shutdown"`
+	TiCIHost                   string                  `toml:"tici-host" json:"tici-host"`
+	TiCIPort                   uint                    `toml:"tici-port" json:"tici-port"`
 	// AlterPrimaryKey is used to control alter primary key feature.
 	AlterPrimaryKey bool `toml:"alter-primary-key" json:"alter-primary-key"`
 	// TreatOldVersionUTF8AsUTF8MB4 is use to treat old version table/column UTF8 charset as UTF8MB4. This is for compatibility.
@@ -880,8 +882,10 @@ type Experimental struct {
 var defTiKVCfg = tikvcfg.DefaultConfig()
 var defaultConf = Config{
 	Host:                         DefHost,
+	TiCIHost:                     "0.0.0.0",
 	AdvertiseAddress:             "",
 	Port:                         DefPort,
+	TiCIPort:                     50051,
 	Socket:                       "/tmp/tidb-{Port}.sock",
 	Cors:                         "",
 	Store:                        StoreTypeUniStore,

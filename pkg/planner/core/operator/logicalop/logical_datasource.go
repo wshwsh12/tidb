@@ -641,7 +641,7 @@ func (ds *DataSource) checkFulltextSearchPredicates(remained []expression.Expres
 ) {
 	ftsIndexes := make([]*model.IndexInfo, 0, 3)
 	for _, index := range ds.TableInfo.Indices {
-		if index.FulltextInfo != nil || index.Name.L == "idx_ft" {
+		if index.IsFulltextIndex() {
 			ftsIndexes = append(ftsIndexes, index)
 		}
 	}

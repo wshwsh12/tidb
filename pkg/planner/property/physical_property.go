@@ -253,6 +253,12 @@ type PhysicalProperty struct {
 		*expression.VSInfo
 		TopK uint32
 	}
+
+	FullTextProp struct {
+		QueryColumns []*expression.Column
+		QueryJSONStr string
+		Limit        int
+	}
 }
 
 // NewPhysicalProperty builds property from columns.

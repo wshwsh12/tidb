@@ -1307,8 +1307,8 @@ func BuildTableInfo(
 		}
 
 		var (
-			indexName               = constr.Name
-			primary, unique, vector bool
+			indexName                         = constr.Name
+			primary, unique, vector, fulltext bool
 		)
 
 		// Check if the index is primary, unique or vector.
@@ -1324,6 +1324,8 @@ func BuildTableInfo(
 				return nil, dbterror.ErrGeneralUnsupportedDDL.GenWithStackByArgs("set vector index invisible")
 			}
 			vector = true
+		case ast.ConstraintFulltext:
+			fulltext = true
 		}
 
 		// check constraint
@@ -1397,6 +1399,7 @@ func BuildTableInfo(
 			primary,
 			unique,
 			vector,
+			fulltext,
 			constr.Keys,
 			constr.Option,
 			model.StatePublic,
@@ -1561,7 +1564,7 @@ func addIndexForForeignKey(ctx *metabuild.Context, tbInfo *model.TableInfo) erro
 				Length: types.UnspecifiedLength,
 			})
 		}
-		idxInfo, err := BuildIndexInfo(ctx, tbInfo, idxName, false, false, false, keys, nil, model.StatePublic)
+		idxInfo, err := BuildIndexInfo(ctx, tbInfo, idxName, false, false, false, false, keys, nil, model.StatePublic)
 		if err != nil {
 			return errors.Trace(err)
 		}

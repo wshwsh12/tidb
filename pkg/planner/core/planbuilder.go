@@ -1206,7 +1206,7 @@ func getPossibleAccessPaths(ctx base.PlanContext, tableHints *hint.PlanHints, in
 					continue
 				}
 			}
-			if index.IsTiFlashLocalIndex() || index.IsTiCI() {
+			if index.IsTiFlashLocalIndex() || index.IsFulltextIndex() {
 				// Because the value of `TiFlashReplica.Available` changes as the user modify replica, it is not ideal if the state of index changes accordingly.
 				// So the current way to use the columnar indexes is to require the TiFlash Replica to be available.
 				if !tblInfo.TiFlashReplica.Available {
@@ -1625,7 +1625,7 @@ func (b *PlanBuilder) buildPhysicalIndexLookUpReader(_ context.Context, dbName a
 		DBName:           dbName,
 		Columns:          idxColInfos,
 		Index:            idx,
-		FullText:         idx.Name.L == "idx_ft",
+		FullText:         idx.IsFulltextIndex(),
 		IdxCols:          idxCols,
 		IdxColLens:       idxColLens,
 		dataSourceSchema: idxColSchema.Clone(),
@@ -2057,7 +2057,7 @@ func (b *PlanBuilder) getMustAnalyzedColumns(tbl *resolve.TableNameW, cols *calc
 		}
 		virtualExprs := make([]expression.Expression, 0, len(tblInfo.Columns))
 		for _, idx := range tblInfo.Indices {
-			if idx.State != model.StatePublic || idx.MVIndex || idx.IsTiFlashLocalIndex() || idx.IsTiCI() {
+			if idx.State != model.StatePublic || idx.MVIndex || idx.IsTiFlashLocalIndex() || idx.IsFulltextIndex() {
 				continue
 			}
 			for _, idxCol := range idx.Columns {
@@ -2332,8 +2332,12 @@ func getModifiedIndexesInfoForAnalyze(
 			independentIdxsInfo = append(independentIdxsInfo, originIdx)
 			continue
 		}
-		if originIdx.IsTiFlashLocalIndex() || originIdx.IsTiCI() {
+		if originIdx.IsTiFlashLocalIndex() || originIdx.IsFulltextIndex() {
 			stmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing columnar index is not supported, skip %s", originIdx.Name.L))
+			continue
+		}
+		if originIdx.IsFulltextIndex() {
+			stmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing fulltext index is not supported, skip %s", originIdx.Name.L))
 			continue
 		}
 		if allColumns {
@@ -2789,8 +2793,12 @@ func (b *PlanBuilder) buildAnalyzeTable(as *ast.AnalyzeTableStmt, opts map[ast.A
 				b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing multi-valued indexes is not supported, skip %s", idx.Name.L))
 				continue
 			}
-			if idx.IsTiFlashLocalIndex() || idx.IsTiCI() {
+			if idx.IsTiFlashLocalIndex() || idx.IsFulltextIndex() {
 				b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing columnar index is not supported, skip %s", idx.Name.L))
+				continue
+			}
+			if idx.IsFulltextIndex() {
+				b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing fulltext index is not supported, skip %s", idx.Name.L))
 				continue
 			}
 			p.IdxTasks = append(p.IdxTasks, generateIndexTasks(idx, as, tnW.TableInfo, partitionNames, physicalIDs, version)...)
@@ -2869,8 +2877,12 @@ func (b *PlanBuilder) buildAnalyzeIndex(as *ast.AnalyzeTableStmt, opts map[ast.A
 			b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing multi-valued indexes is not supported, skip %s", idx.Name.L))
 			continue
 		}
-		if idx.IsTiFlashLocalIndex() || idx.IsTiCI() {
+		if idx.IsTiFlashLocalIndex() || idx.IsFulltextIndex() {
 			b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing columnar index is not supported, skip %s", idx.Name.L))
+			continue
+		}
+		if idx.IsFulltextIndex() {
+			b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing fulltext index is not supported, skip %s", idx.Name.L))
 			continue
 		}
 		p.IdxTasks = append(p.IdxTasks, generateIndexTasks(idx, as, tblInfo, names, physicalIDs, version)...)
@@ -2903,8 +2915,12 @@ func (b *PlanBuilder) buildAnalyzeAllIndex(as *ast.AnalyzeTableStmt, opts map[as
 				b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing multi-valued indexes is not supported, skip %s", idx.Name.L))
 				continue
 			}
-			if idx.IsTiFlashLocalIndex() || idx.IsTiCI() {
+			if idx.IsTiFlashLocalIndex() || idx.IsFulltextIndex() {
 				b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing columnar index is not supported, skip %s", idx.Name.L))
+				continue
+			}
+			if idx.IsFulltextIndex() {
+				b.ctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackErrorf("analyzing fulltext index is not supported, skip %s", idx.Name.L))
 				continue
 			}
 

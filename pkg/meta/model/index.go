@@ -165,8 +165,8 @@ func (index *IndexInfo) IsTiFlashLocalIndex() bool {
 	return index.VectorInfo != nil
 }
 
-func (index *IndexInfo) IsTiCI() bool {
-	return index.Name.L == "idx_ft"
+// IsFulltextIndex checks whether the index is a TiCI local index.
+func (index *IndexInfo) IsFulltextIndex() bool {
 	return index.FulltextInfo != nil
 }
 

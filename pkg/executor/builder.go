@@ -504,7 +504,7 @@ func buildIndexLookUpChecker(b *executorBuilder, p *plannercore.PhysicalIndexLoo
 func (b *executorBuilder) buildCheckTable(v *plannercore.CheckTable) exec.Executor {
 	noMVIndexOrPrefixIndexOrColumnarIndex := true
 	for _, idx := range v.IndexInfos {
-		if idx.MVIndex || idx.IsTiFlashLocalIndex() {
+		if idx.MVIndex || idx.IsTiFlashLocalIndex() || idx.FulltextInfo != nil {
 			noMVIndexOrPrefixIndexOrColumnarIndex = false
 			break
 		}
