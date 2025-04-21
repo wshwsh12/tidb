@@ -757,6 +757,7 @@ type PhysicalIndexScan struct {
 	isPartition bool
 	Desc        bool
 	KeepOrder   bool
+	FullText    bool
 	// ByItems only for partition table with orderBy + pushedLimit
 	ByItems []*util.ByItems
 

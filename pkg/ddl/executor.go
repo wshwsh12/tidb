@@ -1815,7 +1815,7 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 			case ast.ConstraintPrimaryKey:
 				err = e.CreatePrimaryKey(sctx, ident, ast.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option)
 			case ast.ConstraintFulltext:
-				sctx.GetSessionVars().StmtCtx.AppendWarning(dbterror.ErrTableCantHandleFt)
+				err = e.createFulltextIndex(sctx, ident, ast.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists)
 			case ast.ConstraintCheck:
 				if !vardef.EnableCheckConstraint.Load() {
 					sctx.GetSessionVars().StmtCtx.AppendWarning(errCheckConstraintIsOff)
@@ -4727,6 +4727,20 @@ func checkIndexNameAndColumns(ctx *metabuild.Context, t table.Table, indexName a
 	return indexName, hiddenCols, nil
 }
 
+func checkTableTypeForFulltextIndex(tblInfo *model.TableInfo) error {
+	if tblInfo.TableCacheStatusType != model.TableCacheStatusDisable {
+		return dbterror.ErrOptOnCacheTable.GenWithStackByArgs("Create Fulltext Index")
+	}
+	if tblInfo.TempTableType != model.TempTableNone {
+		return dbterror.ErrOptOnTemporaryTable.FastGenByArgs("fulltext index")
+	}
+	if tblInfo.GetPartitionInfo() != nil {
+		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("unsupported partition table")
+	}
+
+	return nil
+}
+
 func checkTableTypeForColumnarIndex(tblInfo *model.TableInfo) error {
 	if tblInfo.TableCacheStatusType != model.TableCacheStatusDisable {
 		return dbterror.ErrOptOnCacheTable.GenWithStackByArgs("Create Vector Index")
@@ -4802,6 +4816,72 @@ func (e *executor) createColumnarIndex(ctx sessionctx.Context, ti ast.Ident, ind
 			FuncExpr:                funcExpr,
 			IsColumnar:              true,
 			ColumnarIndexType:       columnarIndexType,
+		}},
+		OpType: model.OpAddIndex,
+	}
+
+	err = e.doDDLJob2(ctx, job, args)
+	// key exists, but if_not_exists flags is true, so we ignore this error.
+	if dbterror.ErrDupKeyName.Equal(err) && ifNotExists {
+		ctx.GetSessionVars().StmtCtx.AppendNote(err)
+		return nil
+	}
+	return errors.Trace(err)
+}
+
+func (e *executor) createFulltextIndex(ctx sessionctx.Context, ti ast.Ident, indexName ast.CIStr,
+	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool) error {
+	schema, t, err := e.getSchemaAndTableByIdent(ti)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	tblInfo := t.Meta()
+	if err := checkTableTypeForFulltextIndex(tblInfo); err != nil {
+		return errors.Trace(err)
+	}
+
+	metaBuildCtx := NewMetaBuildContextWithSctx(ctx)
+	indexName, _, err = checkIndexNameAndColumns(metaBuildCtx, t, indexName, indexPartSpecifications, model.ColumnarIndexTypeFullText, ifNotExists)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	_, funcExpr, err := buildFulltextInfoWithCheck(indexOption, tblInfo)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Check before the job is put to the queue.
+	// This check is redundant, but useful. If DDL check fail before the job is put
+	// to job queue, the fail path logic is particularly fast.
+	// After DDL job is put to the queue, and if the check fail, TiDB will run the DDL cancel logic.
+	// The recover step causes DDL wait a few seconds, makes the unit test painfully slow.
+	// For same reason, decide whether index is global here.
+	_, _, err = buildIndexColumns(metaBuildCtx, tblInfo.Columns, indexPartSpecifications, model.ColumnarIndexTypeFullText)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// May be truncate comment here, when index comment too long and sql_mode it's strict.
+	sessionVars := ctx.GetSessionVars()
+	if _, err = validateCommentLength(sessionVars.StmtCtx.ErrCtx(), sessionVars.SQLMode, indexName.String(), &indexOption.Comment, dbterror.ErrTooLongTableComment); err != nil {
+		return errors.Trace(err)
+	}
+
+	job := buildAddIndexJobWithoutTypeAndArgs(ctx, schema, t)
+	job.Version = model.GetJobVerInUse()
+	job.Type = model.ActionAddFulltextIndex
+	indexPartSpecifications[0].Expr = nil
+
+	// TODO: support CDCWriteSource
+
+	args := &model.ModifyIndexArgs{
+		IndexArgs: []*model.IndexArg{{
+			IndexName:               indexName,
+			IndexPartSpecifications: indexPartSpecifications,
+			IndexOption:             indexOption,
+			FuncExpr:                funcExpr,
+			IsColumnar:              true,
 		}},
 		OpType: model.OpAddIndex,
 	}

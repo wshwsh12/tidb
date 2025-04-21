@@ -53,6 +53,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/hack"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/versioninfo"
+	tipb "github.com/pingcap/tipb/go-tipb"
 	"github.com/tikv/client-go/v2/oracle"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
@@ -60,6 +61,8 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -129,6 +132,8 @@ type InfoSyncer struct {
 	tiflashReplicaManager TiFlashReplicaManager
 	resourceManagerClient pd.ResourceManagerClient
 	infoCache             infoschemaMinTS
+	ticiClient            *grpc.ClientConn
+	tiCIManagerCtx        TiCIManagerCtx
 }
 
 // ServerInfo represents the server's basic information.
@@ -193,7 +198,9 @@ type StaticServerInfo struct {
 // To update the dynamic server information, use `InfoSyncer.cloneDynamicServerInfo` to obtain a copy of the dynamic server info.
 // After making modifications, use `InfoSyncer.setDynamicServerInfo` to update the dynamic server information.
 type DynamicServerInfo struct {
-	Labels map[string]string `json:"labels"`
+	TiCIIP   string            `json:"tici_ip"`
+	TiCIPort uint              `json:"tici_port"`
+	Labels   map[string]string `json:"labels"`
 }
 
 // clone the DynamicServerInfo.
@@ -270,11 +277,17 @@ func GlobalInfoSyncerInit(
 	if err != nil {
 		return nil, err
 	}
+	is.ticiClient, err = grpc.NewClient(fmt.Sprintf("%s:%d", is.info.Load().TiCIIP, is.info.Load().TiCIPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+
 	is.initLabelRuleManager()
 	is.initPlacementManager()
 	is.initScheduleManager()
 	is.initTiFlashReplicaManager(codec)
 	is.initResourceManagerClient(pdCli)
+	is.initTiCIManagerCtx()
 	setGlobalInfoSyncer(is)
 	return is, nil
 }
@@ -285,6 +298,7 @@ func (is *InfoSyncer) init(ctx context.Context, skipRegisterToDashboard bool) er
 	if err != nil {
 		return err
 	}
+
 	if skipRegisterToDashboard {
 		return nil
 	}
@@ -319,6 +333,10 @@ func (is *InfoSyncer) initPlacementManager() {
 		return
 	}
 	is.placementManager = &PDPlacementManager{is.pdHTTPCli}
+}
+
+func (is *InfoSyncer) initTiCIManagerCtx() {
+	is.tiCIManagerCtx = TiCIManagerCtx{indexServiceClient: tipb.NewIndexerServiceClient(is.ticiClient)}
 }
 
 func (is *InfoSyncer) initResourceManagerClient(pdCli pd.Client) {
@@ -1205,6 +1223,73 @@ func SyncTiFlashTableSchema(ctx context.Context, tableID int64) error {
 		}
 	}
 	return is.tiflashReplicaManager.SyncTiFlashTableSchema(tableID, tiflashStores)
+}
+
+// CreateFulltextIndexOnTiCI Create fulltext index on TiCI
+// TODO: create index by tiCIManager and refine the error message
+func CreateFulltextIndexOnTiCI(ctx context.Context, tblInfo *model.TableInfo, indexInfo *model.IndexInfo, schemaName string) error {
+	is, err := getGlobalInfoSyncer()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	pkName := tblInfo.GetPkName()
+	indexColumns := make([]*tipb.TiCIColumnInfo, 0)
+	for i := range indexInfo.Columns {
+		offset := indexInfo.Columns[i].Offset
+		indexColumns = append(indexColumns, &tipb.TiCIColumnInfo{
+			ColumnId:     tblInfo.Columns[offset].ID,
+			ColumnName:   tblInfo.Columns[offset].Name.String(),
+			Type:         int32(tblInfo.Columns[offset].GetType()),
+			ColumnLength: int32(tblInfo.Columns[offset].FieldType.StorageLength()),
+			Decimal:      int32(tblInfo.Columns[offset].GetDecimal()),
+			DefaultVal:   tblInfo.Columns[offset].DefaultValueBit,
+			IsPrimaryKey: pkName == tblInfo.Columns[offset].Name,
+			IsArray:      false,
+		})
+	}
+	tableColumns := make([]*tipb.TiCIColumnInfo, 0)
+	for i := range tblInfo.Columns {
+		tableColumns = append(tableColumns, &tipb.TiCIColumnInfo{
+			ColumnId:     tblInfo.Columns[i].ID,
+			ColumnName:   tblInfo.Columns[i].Name.String(),
+			Type:         int32(tblInfo.Columns[i].GetType()),
+			ColumnLength: int32(tblInfo.Columns[i].FieldType.StorageLength()),
+			Decimal:      int32(tblInfo.Columns[i].GetDecimal()),
+			DefaultVal:   tblInfo.Columns[i].DefaultValueBit,
+			IsPrimaryKey: pkName == tblInfo.Columns[i].Name,
+			IsArray:      false,
+		})
+	}
+	req := &tipb.CreateIndexRequest{
+		IndexInfo: &tipb.TiCIIndexInfo{
+			IndexId:   indexInfo.ID,
+			IndexName: indexInfo.Name.String(),
+			IndexType: tipb.IndexType_FULL_TEXT,
+			Columns:   indexColumns,
+			IsUnique:  indexInfo.Unique,
+			ParserInfo: &tipb.ParserInfo{
+				ParserType: tipb.ParserType_DEFAULT_PARSER,
+			},
+		},
+		TableInfo: &tipb.TiCITableInfo{
+			TableId:      tblInfo.ID,
+			TableName:    tblInfo.Name.L,
+			DatabaseName: schemaName,
+			Version:      int64(tblInfo.Version),
+			Columns:      tableColumns,
+		},
+	}
+	resp, err := is.tiCIManagerCtx.indexServiceClient.CreateIndex(ctx, req)
+	if err != nil {
+		return err
+	}
+	if resp.Status != 0 {
+		logutil.BgLogger().Error("create fulltext index failed", zap.String("indexID", resp.IndexId), zap.String("errorMessage", resp.ErrorMessage))
+		return nil
+	}
+	logutil.BgLogger().Info("create fulltext index success", zap.String("indexID", resp.IndexId))
+
+	return nil
 }
 
 // CalculateTiFlashProgress calculates TiFlash replica progress

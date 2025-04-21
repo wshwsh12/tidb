@@ -504,7 +504,7 @@ func buildIndexLookUpChecker(b *executorBuilder, p *plannercore.PhysicalIndexLoo
 func (b *executorBuilder) buildCheckTable(v *plannercore.CheckTable) exec.Executor {
 	noMVIndexOrPrefixIndexOrColumnarIndex := true
 	for _, idx := range v.IndexInfos {
-		if idx.MVIndex || idx.IsColumnarIndex() {
+		if idx.MVIndex || idx.IsColumnarIndex() || idx.FulltextInfo != nil {
 			noMVIndexOrPrefixIndexOrColumnarIndex = false
 			break
 		}
@@ -4074,13 +4074,16 @@ func buildTableReq(b *executorBuilder, schemaLen int, plans []base.PhysicalPlan)
 // If len(ByItems) != 0 means index request should return related columns
 // to sort result rows in TiDB side for partition tables.
 func buildIndexReq(ctx sessionctx.Context, columns []*model.IndexColumn, handleLen int, plans []base.PhysicalPlan) (dagReq *tipb.DAGRequest, err error) {
+	idxScan := plans[0].(*plannercore.PhysicalIndexScan)
 	indexReq, err := builder.ConstructDAGReq(ctx, plans, kv.TiKV)
+	if idxScan.FullText {
+		indexReq, err = builder.ConstructDAGReq(ctx, plans, kv.TiFlash)
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	indexReq.OutputOffsets = []uint32{}
-	idxScan := plans[0].(*plannercore.PhysicalIndexScan)
 	if len(idxScan.ByItems) != 0 {
 		schema := idxScan.Schema()
 		for _, item := range idxScan.ByItems {

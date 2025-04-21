@@ -257,6 +257,12 @@ type PhysicalProperty struct {
 	}
 
 	IndexJoinProp *IndexJoinRuntimeProp
+
+	FullTextProp struct {
+		QueryColumns []*expression.Column
+		QueryJSONStr string
+		Limit        int
+	}
 }
 
 // IndexJoinRuntimeProp is the inner runtime property for index join.
