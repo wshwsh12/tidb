@@ -34,6 +34,7 @@ import (
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/chunk"
+	"github.com/pingcap/tidb/pkg/util/dbterror/exeerrors"
 	"github.com/pingcap/tidb/pkg/util/execdetails"
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/tikv/client-go/v2/txnkv/txnsnapshot"
@@ -463,6 +464,18 @@ func handleUpdateError(sctx sessionctx.Context, colName ast.CIStr, colInfo *mmod
 	if err == nil {
 		return nil
 	}
+	col := colInfo
+	if col != nil && col.GetType() == mysql.TypeTimestamp &&
+		types.ErrTimestampInDSTTransition.Equal(err) {
+		newErr := exeerrors.ErrTruncateWrongInsertValue.FastGenByArgs(types.TypeStr(col.GetType()), "", col.Name.O, rowIdx+1)
+		// IGNORE takes precedence over STRICT mode.
+		if sctx.GetSessionVars().SQLMode.HasStrictMode() {
+			return newErr
+		}
+		// timestamp already adjusted to end of DST transition, convert error to warning
+		sctx.GetSessionVars().StmtCtx.AppendWarning(newErr)
+		return nil
+	}
 
 	if types.ErrDataTooLong.Equal(err) {
 		return errors.AddStack(resetErrDataTooLong(colName.O, rowIdx+1, err))
@@ -501,6 +514,7 @@ func (e *UpdateExec) fastComposeNewRow(rowIdx int, oldRow []types.Datum, cols []
 		// No need to cast `_tidb_rowid` column value.
 		if cols[assign.Col.Index] != nil {
 			val, err = table.CastValue(e.Ctx(), val, cols[assign.Col.Index].ColumnInfo, false, false)
+
 			if err = handleUpdateError(e.Ctx(), assign.ColName, colInfo, rowIdx, err); err != nil {
 				return nil, err
 			}

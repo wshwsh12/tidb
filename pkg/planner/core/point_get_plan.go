@@ -965,8 +965,8 @@ func TryFastPlan(ctx base.PlanContext, node *resolve.NodeW) (p base.Plan) {
 			p = fp
 			return
 		}
-	case *ast.UpdateStmt:
-		return tryUpdatePointPlan(ctx, x, node.GetResolveContext())
+	//case *ast.UpdateStmt:
+	//	return tryUpdatePointPlan(ctx, x, node.GetResolveContext())
 	case *ast.DeleteStmt:
 		return tryDeletePointPlan(ctx, x, node.GetResolveContext())
 	}
