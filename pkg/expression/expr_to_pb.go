@@ -172,6 +172,10 @@ func (pc *PbConverter) encodeDatum(ft *types.FieldType, d types.Datum) (tipb.Exp
 			tc, ec := typeCtx(pc.ctx), errCtx(pc.ctx)
 			val, err := codec.EncodeMySQLTime(tc.Location(), d.GetMysqlTime(), ft.GetType(), nil)
 			err = ec.HandleError(err)
+			if pc.isTiCIExpr {
+				val, err = codec.EncodeMySQLTime(tc.Location(), d.GetMysqlTime(), mysql.TypeUnspecified, nil)
+				err = ec.HandleError(err)
+			}
 			if err != nil {
 				logutil.BgLogger().Error("encode mysql time", zap.Error(err))
 				return tp, nil, false
@@ -252,8 +256,10 @@ func (pc PbConverter) columnToPBExpr(column *Column, checkType bool) *tipb.Expr 
 	}
 
 	return &tipb.Expr{
-		Tp:  tipb.ExprType_ColumnRef,
-		Val: codec.EncodeInt(nil, id)}
+		Tp:        tipb.ExprType_ColumnRef,
+		Val:       codec.EncodeInt(nil, id),
+		FieldType: ToPBFieldType(column.RetType),
+	}
 }
 
 func (pc PbConverter) scalarFuncToPBExpr(expr *ScalarFunction) *tipb.Expr {
