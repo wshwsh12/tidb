@@ -509,6 +509,13 @@ func (p *PhysicalIndexScan) InitSchemaForTiCIIndex(possibleHandleCols, indexCols
 			break
 		}
 	}
+	for _, col := range p.DataSourceSchema.Columns {
+		if col.ID == model.VirtualColFTSScoreID && !columnIDSet.Has(int(col.ID)) {
+			rowLayout = append(rowLayout, col.Clone().(*expression.Column))
+			columnIDSet.Insert(int(col.ID))
+			break
+		}
+	}
 
 	rowLayout = append(rowLayout, &expression.Column{
 		RetType:  types.NewFieldType(mysql.TypeLonglong),
@@ -642,6 +649,8 @@ func (p *PhysicalIndexScan) ToPB(_ *base.BuildPBContext, store kv.StoreType) (*t
 			columns = append(columns, model.NewExtraHandleColInfo())
 		} else if col.ID == model.ExtraPhysTblID {
 			columns = append(columns, model.NewExtraPhysTblIDColInfo())
+		} else if col.ID == model.VirtualColFTSScoreID {
+			columns = append(columns, model.NewVirtualFTSScoreColInfo())
 		} else if col.ID == model.ExtraVersionID {
 			columns = append(columns, model.NewExtraVersionColInfo())
 		} else {

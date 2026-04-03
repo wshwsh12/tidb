@@ -1697,6 +1697,7 @@ func (er *expressionRewriter) Leave(originInNode ast.Node) (retNode ast.Node, ok
 		er.ctxStack[len(er.ctxStack)-1].SetCoercibility(expression.CoercibilityExplicit)
 		er.ctxStack[len(er.ctxStack)-1].SetCharsetAndCollation(arg.GetType(er.sctx.GetEvalCtx()).GetCharset(), arg.GetType(er.sctx.GetEvalCtx()).GetCollate())
 	case *ast.MatchAgainst:
+		er.planCtx.builder.optFlag |= rule.FlagFTSQuickValidation
 		numCols := len(v.ColumnNames)
 		// The stack order is: col1, col2, ... colN, against
 		stackLen := len(er.ctxStack)

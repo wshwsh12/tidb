@@ -108,6 +108,12 @@ var ExtraCommitTSName = ast.NewCIStr("_tidb_commit_ts")
 // so a distance column will be added to table_scan. this field is used in the action.
 const VirtualColVecSearchDistanceID int64 = -2000
 
+// VirtualColFTSScoreID is the ID of the column that carries the TiCI local relevance score.
+const VirtualColFTSScoreID int64 = -2050
+
+// VirtualColFTSScoreName is the name of the virtual score column used by TiCI fulltext queries.
+var VirtualColFTSScoreName = ast.NewCIStr("_INTERNAL_FTS_SCORE")
+
 // Deprecated: Use ExtraPhysTblIDName instead.
 // var ExtraPartitionIdName = NewCIStr("_tidb_pid") //nolint:revive
 

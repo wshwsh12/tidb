@@ -160,6 +160,32 @@ func TestParseStandardBooleanMode(t *testing.T) {
 			output: "M[foo] S[] N[]",
 		},
 		{
+			name:   "modifier: '~' is accepted as a SHOULD soft-negative modifier",
+			input:  `~foo`,
+			output: "M[] S[~foo] N[]",
+		},
+		{
+			name:   "modifier: '>' is accepted as a SHOULD boost modifier",
+			input:  `>foo`,
+			output: "M[] S[>foo] N[]",
+		},
+		{
+			name:   "modifier: '<' is accepted as a SHOULD de-boost modifier",
+			input:  `<foo`,
+			output: "M[] S[<foo] N[]",
+		},
+		{
+			name:   "group: bare subexpression is accepted",
+			input:  `(foo bar)`,
+			output: `M[] S[(M[] S[foo, bar] N[])] N[]`,
+		},
+		{
+			name:   "group: '+' applies to subexpression",
+			input:  `+(foo bar)`,
+			output: `M[(M[] S[foo, bar] N[])] S[] N[]`,
+		},
+
+		{
 			name:   "mix: empty phrase ignored among terms",
 			input:  `foo "" bar`,
 			output: "M[] S[foo, bar] N[]",
@@ -257,29 +283,19 @@ func TestParseStandardBooleanMode(t *testing.T) {
 		},
 
 		{
-			name:        "error: standalone '(' is rejected",
+			name:        "error: standalone '(' requires a closing ')'",
 			input:       `(`,
-			errContains: "unexpected token",
-		},
-		{
-			name:        "error: grouping parentheses are rejected",
-			input:       `(foo)`,
-			errContains: "unexpected token",
-		},
-		{
-			name:        "error: parentheses are rejected even after prefix '+'",
-			input:       `+(foo)`,
-			errContains: "unexpected token",
+			errContains: "expected ')'",
 		},
 		{
 			name:        "error: empty parentheses are rejected",
 			input:       `()`,
-			errContains: "unexpected token",
+			errContains: "unexpected ')'",
 		},
 		{
-			name:        "error: parentheses in the middle of a query are rejected",
+			name:        "error: empty parentheses in the middle of a query are rejected",
 			input:       `foo () bar`,
-			errContains: "unexpected token",
+			errContains: "unexpected ')'",
 		},
 		{
 			name:        "error: unexpected ')' at top level",
@@ -290,21 +306,6 @@ func TestParseStandardBooleanMode(t *testing.T) {
 			name:        "error: unexpected trailing ')'",
 			input:       `foo)`,
 			errContains: "unexpected ')'",
-		},
-		{
-			name:        "error: '<' is rejected",
-			input:       `<foo`,
-			errContains: "unexpected token",
-		},
-		{
-			name:        "error: '>' is rejected",
-			input:       `>foo`,
-			errContains: "unexpected token",
-		},
-		{
-			name:        "error: '~' is rejected",
-			input:       `~foo`,
-			errContains: "unexpected token",
 		},
 		{
 			name:        "error: '@' cannot follow a TERM token",

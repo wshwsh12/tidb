@@ -37,6 +37,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/planner/core/base"
+	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 	"github.com/pingcap/tidb/pkg/planner/core/operator/physicalop"
 	"github.com/pingcap/tidb/pkg/planner/core/resolve"
 	"github.com/pingcap/tidb/pkg/planner/property"
@@ -208,6 +209,101 @@ func TestDisableFold(t *testing.T) {
 			require.IsType(t, expectedArg, rewrittenArg)
 		}
 	}
+}
+
+func TestResolveExprToVirtualColumn(t *testing.T) {
+	ctx := coretestsdk.MockContext()
+	defer func() {
+		domain.GetDomain(ctx).StatsHandle().Close()
+	}()
+
+	titleCol := &expression.Column{
+		ID:       1,
+		UniqueID: 1,
+		RetType:  types.NewFieldType(mysql.TypeString),
+		OrigName: "test.t.title",
+	}
+	matchExpr, err := expression.NewFunction(
+		ctx,
+		ast.FTSMysqlMatchAgainst,
+		types.NewFieldType(mysql.TypeDouble),
+		&expression.Constant{
+			Value:   types.NewStringDatum("hello"),
+			RetType: types.NewFieldType(mysql.TypeString),
+		},
+		titleCol,
+	)
+	require.NoError(t, err)
+	matchFn := matchExpr.(*expression.ScalarFunction)
+	require.NoError(t, expression.SetFTSMysqlMatchAgainstModifier(matchFn, ast.FulltextSearchModifierBooleanMode))
+
+	scoreCol := &expression.Column{
+		ID:          model.VirtualColFTSScoreID,
+		UniqueID:    2,
+		RetType:     types.NewFieldType(mysql.TypeDouble),
+		VirtualExpr: matchFn.Clone(),
+		OrigName:    model.VirtualColFTSScoreName.O,
+	}
+	schema := expression.NewSchema(titleCol, scoreCol)
+
+	resolved := resolveExprToVirtualColumn(matchFn.Clone(), schema, ctx.GetExprCtx().GetEvalCtx())
+	col, ok := resolved.(*expression.Column)
+	require.True(t, ok)
+	require.Equal(t, model.VirtualColFTSScoreID, col.ID)
+}
+
+func TestResolveHavingAndOrderByRewritesMatchAgainstToAuxColumn(t *testing.T) {
+	ctx := coretestsdk.MockContext()
+	defer func() {
+		domain.GetDomain(ctx).StatsHandle().Close()
+	}()
+
+	stmt, err := parser.New().ParseOneStmt(
+		"select id from t where match(title) against('hello' in boolean mode) order by match(title) against('hello' in boolean mode) desc",
+		"",
+		"",
+	)
+	require.NoError(t, err)
+	sel := stmt.(*ast.SelectStmt)
+
+	builder, _ := NewPlanBuilder().Init(ctx, nil, hint.NewQBHintHandler(nil))
+	idCol := &expression.Column{
+		ID:       1,
+		UniqueID: 1,
+		RetType:  types.NewFieldType(mysql.TypeLonglong),
+		OrigName: "test.t.id",
+	}
+	titleCol := &expression.Column{
+		ID:       2,
+		UniqueID: 2,
+		RetType:  types.NewFieldType(mysql.TypeString),
+		OrigName: "test.t.title",
+	}
+	p := logicalop.LogicalTableDual{}.Init(ctx, 0)
+	p.SetSchema(expression.NewSchema(idCol, titleCol))
+	p.SetOutputNames(types.NameSlice{
+		{
+			DBName:      ast.NewCIStr("test"),
+			TblName:     ast.NewCIStr("t"),
+			ColName:     ast.NewCIStr("id"),
+			OrigColName: ast.NewCIStr("id"),
+		},
+		{
+			DBName:      ast.NewCIStr("test"),
+			TblName:     ast.NewCIStr("t"),
+			ColName:     ast.NewCIStr("title"),
+			OrigColName: ast.NewCIStr("title"),
+		},
+	})
+
+	_, _, err = builder.resolveHavingAndOrderBy(context.Background(), sel, p)
+	require.NoError(t, err)
+	require.Len(t, sel.Fields.Fields, 2)
+	require.True(t, sel.Fields.Fields[1].Auxiliary)
+	_, ok := sel.Fields.Fields[1].Expr.(*ast.MatchAgainst)
+	require.True(t, ok)
+	_, ok = sel.OrderBy.Items[0].Expr.(*ast.ColumnNameExpr)
+	require.True(t, ok)
 }
 
 func TestDeepClone(t *testing.T) {

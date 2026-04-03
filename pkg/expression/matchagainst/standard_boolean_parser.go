@@ -29,16 +29,17 @@ import (
 // Informal grammar:
 //
 //	query  := clause*
-//	clause := [prefix] term | [prefix] phrase | ['*'] term
-//	prefix := '+' | '-'
+//	clause := [prefix] term | [prefix] phrase | [prefix] group | ['*'] term
+//	prefix := '+' | '-' | '~' | '>' | '<'
 //	term   := (TERM | NUM) ['*']
 //	phrase := TEXT
+//	group  := '(' query ')'
 //
 // Notes:
 //   - Leading '*' before a term is accepted but ignored.
 //   - Trailing '*' after a term sets the term's wildcard flag.
 //   - Empty phrases "\"\"" are ignored.
-//   - The STANDARD parser path currently rejects operators: ()<>~@.
+//   - The STANDARD parser path currently rejects '@' phrase-distance syntax.
 func ParseStandardBooleanMode(input string) (*BooleanGroup, error) {
 	tokens, err := tokenizeStandardBooleanMode(input)
 	if err != nil {
@@ -92,10 +93,9 @@ func (p *standardBooleanParser) parseGroup(stopAtRightParen bool) (*BooleanGroup
 }
 
 // parseClause parses one boolean "clause". A clause can be:
-//   - a term token (TERM/NUM) (optionally prefixed by '+' or '-', optionally with trailing '*')
-//   - a phrase token ("...") (optionally prefixed by '+' or '-')
-//
-// Operators (), <, >, ~ and @ are currently rejected in the STANDARD boolean-mode path.
+//   - a term token (TERM/NUM) (optionally prefixed by a boolean modifier, optionally with trailing '*')
+//   - a phrase token ("...") (optionally prefixed by a boolean modifier)
+//   - a parenthesized sub-expression "(...)" (optionally prefixed by a boolean modifier)
 func (p *standardBooleanParser) parseClause() (*BooleanClause, error) {
 	mod := BooleanModifierNone
 	if p.peekIsPrefixOp() {
@@ -110,6 +110,9 @@ func (p *standardBooleanParser) parseClause() (*BooleanClause, error) {
 		}
 		p.applyTrailingWildcardIfPresent(term)
 		return &BooleanClause{Modifier: mod, Expr: term}, nil
+	}
+	if p.peekIsOp('(') {
+		return p.parseGroupClause(mod)
 	}
 
 	switch p.peek().kind {
@@ -135,28 +138,28 @@ func (p *standardBooleanParser) parseClause() (*BooleanClause, error) {
 	}
 }
 
-// parseGroupClause parses a parenthesized boolean sub-expression "(...)". It is currently unused because
-// '(' / ')' are rejected in the STANDARD boolean-mode path, but kept to preserve the overall parser structure.
-// func (p *standardBooleanParser) parseGroupClause(mod BooleanModifier) (*BooleanClause, error) {
-// 	if err := p.expectOp('('); err != nil {
-// 		return nil, err
-// 	}
-// 	inner, err := p.parseGroup(true)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if err := p.expectOp(')'); err != nil {
-// 		return nil, err
-// 	}
-// 	if inner.IsEmpty() {
-// 		return nil, nil
-// 	}
-// 	inner.Parenthesized = true
-// 	return &BooleanClause{
-// 		Modifier: mod,
-// 		Expr:     &inner,
-// 	}, nil
-// }
+// parseGroupClause parses a parenthesized boolean sub-expression "(...)".
+func (p *standardBooleanParser) parseGroupClause(mod BooleanModifier) (*BooleanClause, error) {
+	if err := p.expectOp('('); err != nil {
+		return nil, err
+	}
+	inner, err := p.parseGroup(true)
+	if err != nil {
+		return nil, err
+	}
+	closingPos := p.peek().pos
+	if err := p.expectOp(')'); err != nil {
+		return nil, err
+	}
+	if inner.IsEmpty() {
+		return nil, errors.Errorf("unexpected ')' at pos %d", closingPos)
+	}
+	inner.Parenthesized = true
+	return &BooleanClause{
+		Modifier: mod,
+		Expr:     inner,
+	}, nil
+}
 
 func (p *standardBooleanParser) parseTermExpr() (*BooleanTerm, error) {
 	t := p.peek()
@@ -218,13 +221,22 @@ func (p *standardBooleanParser) consume() standardBooleanToken {
 	return t
 }
 
+func (p *standardBooleanParser) expectOp(op byte) error {
+	t := p.peek()
+	if t.kind != standardBooleanTokenOp || t.op != op {
+		return errors.Errorf("expected %s at pos %d, got %s", p.tokenDesc(standardBooleanToken{kind: standardBooleanTokenOp, op: op, pos: t.pos}), t.pos, p.tokenDesc(t))
+	}
+	p.consume()
+	return nil
+}
+
 func (p *standardBooleanParser) peekIsPrefixOp() bool {
 	t := p.peek()
 	if t.kind != standardBooleanTokenOp {
 		return false
 	}
 	switch t.op {
-	case '+', '-':
+	case '+', '-', '~', '>', '<':
 		return true
 	default:
 		return false
@@ -238,6 +250,12 @@ func (p *standardBooleanParser) consumePrefixOp() BooleanModifier {
 		return BooleanModifierMust
 	case '-':
 		return BooleanModifierMustNot
+	case '~':
+		return BooleanModifierNegate
+	case '>':
+		return BooleanModifierBoost
+	case '<':
+		return BooleanModifierDeBoost
 	default:
 		return BooleanModifierNone
 	}

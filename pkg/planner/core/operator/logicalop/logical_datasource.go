@@ -38,6 +38,7 @@ import (
 	"github.com/pingcap/tidb/pkg/statistics"
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/types"
+	pkgutil "github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/collate"
 	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
 	h "github.com/pingcap/tidb/pkg/util/hint"
@@ -761,6 +762,30 @@ func (ds *DataSource) chooseTiCIIndex(
 	return matchedIdx, matchedExprSetForChosenIndex, hasUnmatchedFTSOverAllIdx
 }
 
+func (ds *DataSource) ChooseTiCIIndexForScoreExpr(expr expression.Expression) *model.IndexInfo {
+	var matchedIdx *model.IndexInfo
+	matchedIndexIsHinted := false
+
+	for _, path := range ds.AllPossibleAccessPaths {
+		if !ds.isTiCIIndexPathCandidate(path, true, matchedIndexIsHinted) {
+			continue
+		}
+		ftsCols, colsInFulltextIdx, invertedCols := ds.collectTiCIIndexCoveredColumns(path.Index)
+		if !expression.ExprCoveredByOneTiCIIndex(expr, &ftsCols, &colsInFulltextIdx, &invertedCols) {
+			continue
+		}
+		if path.Forced && !matchedIndexIsHinted {
+			matchedIdx = path.Index
+			matchedIndexIsHinted = true
+			continue
+		}
+		if matchedIdx == nil {
+			matchedIdx = path.Index
+		}
+	}
+	return matchedIdx
+}
+
 func (ds *DataSource) isTiCIIndexPathCandidate(path *util.AccessPath, hasFTSFuncLocal bool, matchedIndexIsHinted bool) bool {
 	// Not TiCI index, skip it.
 	if path.Index == nil || !path.Index.IsTiCIIndex() {
@@ -889,7 +914,20 @@ func (ds *DataSource) rewriteMatchedTiCIFTSExprs(
 		parserType = matchedIdx.FullTextInfo.ParserType
 	}
 
+	directMatchAgainstCount := 0
 	for _, idx := range matchedCondIdxes {
+		if scalarFunc, ok := ds.PushedDownConds[idx].(*expression.ScalarFunction); ok && scalarFunc.FuncName.L == ast.FTSMysqlMatchAgainst {
+			directMatchAgainstCount++
+		}
+	}
+	keepStructuredMatchAgainst := directMatchAgainstCount == 1
+
+	for _, idx := range matchedCondIdxes {
+		if keepStructuredMatchAgainst {
+			if scalarFunc, ok := ds.PushedDownConds[idx].(*expression.ScalarFunction); ok && scalarFunc.FuncName.L == ast.FTSMysqlMatchAgainst {
+				continue
+			}
+		}
 		rewrittenExpr, _, err := expression.RewriteMySQLMatchAgainstRecursively(ds.SCtx().GetExprCtx(), ds.PushedDownConds[idx], parserType)
 		if err != nil {
 			return nil, err
@@ -897,6 +935,88 @@ func (ds *DataSource) rewriteMatchedTiCIFTSExprs(
 		ds.PushedDownConds[idx] = rewrittenExpr
 	}
 	return matchedCondIdxes, nil
+}
+
+func addVirtualFTSScoreColumn4DS(ds *DataSource, virtualExpr expression.Expression) *expression.Column {
+	if schema := ds.Schema(); schema != nil {
+		for _, col := range schema.Columns {
+			if col.ID == model.VirtualColFTSScoreID {
+				if col.VirtualExpr == nil && virtualExpr != nil {
+					col.VirtualExpr = virtualExpr.Clone()
+				}
+				return col
+			}
+		}
+	} else {
+		ds.SetSchema(expression.NewSchema())
+	}
+
+	scoreCol := &expression.Column{
+		RetType:  types.NewFieldType(mysql.TypeDouble),
+		ID:       model.VirtualColFTSScoreID,
+		UniqueID: ds.SCtx().GetSessionVars().AllocPlanColumnID(),
+		OrigName: fmt.Sprintf("%v.%v.%v", ds.DBName, ds.TableInfo.Name, model.VirtualColFTSScoreName),
+		IsHidden: true,
+	}
+	if virtualExpr != nil {
+		scoreCol.VirtualExpr = virtualExpr.Clone()
+	}
+
+	ds.Columns = append(ds.Columns, model.NewVirtualFTSScoreColInfo())
+	ds.Schema().Append(scoreCol)
+	ds.SetOutputNames(append(ds.OutputNames(), &types.FieldName{
+		DBName:      ds.DBName,
+		TblName:     ds.TableInfo.Name,
+		ColName:     model.VirtualColFTSScoreName,
+		OrigColName: model.VirtualColFTSScoreName,
+		Hidden:      true,
+	}))
+	ds.AppendTableCol(scoreCol)
+	return scoreCol
+}
+
+func (ds *DataSource) BuildTiCIScoreOnlyPath(
+	index *model.IndexInfo,
+	scoreExpr *expression.ScalarFunction,
+) error {
+	ds.SCtx().GetSessionVars().StmtCtx.SetSkipPlanCache("TiCI Index currently can not be cached")
+	ds.PossibleAccessPaths = slices.DeleteFunc(ds.PossibleAccessPaths, func(path *util.AccessPath) bool {
+		return path.Index == nil || path.Index.ID != index.ID
+	})
+	copy(ds.AllPossibleAccessPaths, ds.PossibleAccessPaths)
+	ds.AllPossibleAccessPaths = ds.AllPossibleAccessPaths[:len(ds.PossibleAccessPaths)]
+	if ds.HasForceHints && !ds.PossibleAccessPaths[0].Forced {
+		ds.SCtx().GetSessionVars().StmtCtx.AppendWarning(plannererrors.ErrWarnConflictingHint.FastGenByArgs("USE_INDEX"))
+	}
+
+	parserType := model.FullTextParserTypeStandardV1
+	tokenizer := ""
+	if index.FullTextInfo != nil {
+		parserType = index.FullTextInfo.ParserType
+		tokenizer = string(index.FullTextInfo.ParserType)
+	}
+
+	booleanQuery, err := expression.BuildTiCIBooleanQuery(scoreExpr, parserType)
+	if err != nil {
+		return err
+	}
+	addVirtualFTSScoreColumn4DS(ds, scoreExpr)
+	ds.PossibleAccessPaths[0].AccessConds = append(ds.PossibleAccessPaths[0].AccessConds[:0], scoreExpr)
+
+	queryColumns := make([]*model.ColumnInfo, 0, len(index.Columns))
+	for _, indexCol := range index.Columns {
+		queryColumns = append(queryColumns, ds.TableInfo.Columns[indexCol.Offset])
+	}
+
+	ds.PossibleAccessPaths[0].FtsQueryInfo = &tipb.FTSQueryInfo{
+		QueryType:      tipb.FTSQueryType_FTSQueryTypeWithScore,
+		IndexId:        index.ID,
+		Columns:        pkgutil.ColumnsToProto(queryColumns, ds.TableInfo.PKIsHandle, true, false),
+		QueryTokenizer: tokenizer,
+		BooleanQuery:   booleanQuery,
+	}
+	ds.PossibleAccessPaths[0].TableFilters = append(ds.PossibleAccessPaths[0].TableFilters[:0], ds.PushedDownConds...)
+	return nil
 }
 
 func (ds *DataSource) buildTiCIFTSPathAndCleanUp(
@@ -930,10 +1050,45 @@ func (ds *DataSource) buildTiCIFTSPathAndCleanUp(
 	client := ds.SCtx().GetBuildPBCtx().Client
 	pbConverter := expression.NewPBConverterForTiCI(client, evalCtx)
 	pbExprs := make([]tipb.Expr, 0, len(matchedCondIdxes))
+	var booleanQuery *tipb.FTSBooleanQuery
+	queryType := tipb.FTSQueryType_FTSQueryTypeNoScore
 	// It represents the TiCI search functions currently.
 	ds.PossibleAccessPaths[0].AccessConds = ds.PossibleAccessPaths[0].AccessConds[:0]
+
+	parserType := model.FullTextParserTypeStandardV1
+	tokenizer := ""
+	if index.FullTextInfo != nil {
+		parserType = index.FullTextInfo.ParserType
+		tokenizer = string(index.FullTextInfo.ParserType)
+	}
+
 	for _, idx := range matchedCondIdxes {
 		matchedCond := ds.PushedDownConds[idx]
+		if scalarFunc, ok := matchedCond.(*expression.ScalarFunction); ok && scalarFunc.FuncName.L == ast.FTSMysqlMatchAgainst {
+			query, err := expression.BuildTiCIBooleanQuery(scalarFunc, parserType)
+			if err != nil {
+				return err
+			}
+
+			rewrittenExpr, _, err := expression.RewriteMySQLMatchAgainstRecursively(ds.SCtx().GetExprCtx(), matchedCond, parserType)
+			if err != nil {
+				return err
+			}
+			pbExpr := pbConverter.ExprToPB(rewrittenExpr)
+			if pbExpr == nil {
+				return errors.New("Failed to convert FTS function to PB expression")
+			}
+			pbExprs = append(pbExprs, *pbExpr)
+
+			if query != nil {
+				booleanQuery = query
+				queryType = tipb.FTSQueryType_FTSQueryTypeWithScore
+				addVirtualFTSScoreColumn4DS(ds, matchedCond)
+			}
+			ds.PossibleAccessPaths[0].AccessConds = append(ds.PossibleAccessPaths[0].AccessConds, matchedCond)
+			continue
+		}
+
 		pbExpr := pbConverter.ExprToPB(matchedCond)
 		if pbExpr == nil {
 			// If the expression is not converted to PB, we should return an error.
@@ -943,16 +1098,19 @@ func (ds *DataSource) buildTiCIFTSPathAndCleanUp(
 		ds.PossibleAccessPaths[0].AccessConds = append(ds.PossibleAccessPaths[0].AccessConds, matchedCond)
 	}
 
-	// Build tipb protobuf info for the matched index.
-	tokenizer := ""
-	if index.FullTextInfo != nil {
-		tokenizer = string(index.FullTextInfo.ParserType)
+	queryColumns := make([]*model.ColumnInfo, 0, len(index.Columns))
+	for _, indexCol := range index.Columns {
+		queryColumns = append(queryColumns, ds.TableInfo.Columns[indexCol.Offset])
 	}
+
+	// Build tipb protobuf info for the matched index.
 	ds.PossibleAccessPaths[0].FtsQueryInfo = &tipb.FTSQueryInfo{
-		QueryType:      tipb.FTSQueryType_FTSQueryTypeNoScore,
+		QueryType:      queryType,
 		IndexId:        index.ID,
+		Columns:        pkgutil.ColumnsToProto(queryColumns, ds.TableInfo.PKIsHandle, true, false),
 		QueryTokenizer: tokenizer,
 		MatchExpr:      pbExprs,
+		BooleanQuery:   booleanQuery,
 	}
 
 	ds.PossibleAccessPaths[0].TableFilters = remainedFilters
@@ -1000,8 +1158,13 @@ func (ds *DataSource) IsSingleScan(indexColumns []*expression.Column, idxColLens
 
 // IsTiCISingleScan checks whether all the needed columns and conditions can be covered by the index for TiCI index.
 func (ds *DataSource) IsTiCISingleScan(indexColumns []*expression.Column, idxColLens []int, path *util.AccessPath) bool {
-	if !ds.IsIndexCoveringColumns(ds.ColsRequiringFullLen, indexColumns, idxColLens) {
-		return false
+	for _, col := range ds.ColsRequiringFullLen {
+		if col.ID == model.VirtualColFTSScoreID {
+			continue
+		}
+		if !ds.indexCoveringColumn(col, indexColumns, idxColLens, false) {
+			return false
+		}
 	}
 	for _, cond := range path.TableFilters {
 		if !ds.IsIndexCoveringCondition(cond, indexColumns, idxColLens) {

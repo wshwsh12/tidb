@@ -28,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/pingcap/tidb/pkg/util/mock"
+	"github.com/pingcap/tipb/go-tipb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -831,6 +832,79 @@ func TestRewriteMySQLMatchAgainst(t *testing.T) {
 }
 
 // MockExpr is mainly for test.
+
+func TestBuildTiCIBooleanQuery(t *testing.T) {
+	ctx := mock.NewContext()
+	titleCol := &Column{
+		RetType:  types.NewFieldType(mysql.TypeString),
+		OrigName: "title",
+	}
+
+	buildMatchAgainst := func(pattern string, cols ...*Column) *ScalarFunction {
+		args := make([]Expression, 0, 1+len(cols))
+		args = append(args, &Constant{
+			Value:   types.NewStringDatum(pattern),
+			RetType: types.NewFieldType(mysql.TypeString),
+		})
+		for _, col := range cols {
+			args = append(args, col)
+		}
+		expr, err := NewFunction(ctx, ast.FTSMysqlMatchAgainst, types.NewFieldType(mysql.TypeDouble), args...)
+		require.NoError(t, err)
+		sf, ok := expr.(*ScalarFunction)
+		require.True(t, ok)
+		require.NoError(t, SetFTSMysqlMatchAgainstModifier(sf, ast.FulltextSearchModifierBooleanMode))
+		return sf
+	}
+
+	query, err := BuildTiCIBooleanQuery(buildMatchAgainst(`+a -b c >d <e ~f`, titleCol), model.FullTextParserTypeStandardV1)
+	require.NoError(t, err)
+	require.NotNil(t, query)
+	require.Len(t, query.Nodes, 6)
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurMust, query.Nodes[0].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierNone, query.Nodes[0].GetModifier())
+	require.Equal(t, "a", query.Nodes[0].GetTerm().GetText())
+	require.Equal(t, tipb.FTSBooleanTermType_FTSBooleanTermWord, query.Nodes[0].GetTerm().GetTermType())
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurShould, query.Nodes[1].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierNone, query.Nodes[1].GetModifier())
+	require.Equal(t, "c", query.Nodes[1].GetTerm().GetText())
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurShould, query.Nodes[2].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierBoost, query.Nodes[2].GetModifier())
+	require.Equal(t, "d", query.Nodes[2].GetTerm().GetText())
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurShould, query.Nodes[3].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierDeBoost, query.Nodes[3].GetModifier())
+	require.Equal(t, "e", query.Nodes[3].GetTerm().GetText())
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurShould, query.Nodes[4].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierNegate, query.Nodes[4].GetModifier())
+	require.Equal(t, "f", query.Nodes[4].GetTerm().GetText())
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurMustNot, query.Nodes[5].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierNone, query.Nodes[5].GetModifier())
+	require.Equal(t, "b", query.Nodes[5].GetTerm().GetText())
+
+	grouped, err := BuildTiCIBooleanQuery(buildMatchAgainst(`+(foo bar) baz*`, titleCol), model.FullTextParserTypeStandardV1)
+	require.NoError(t, err)
+	require.NotNil(t, grouped)
+	require.Len(t, grouped.Nodes, 2)
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurMust, grouped.Nodes[0].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierNone, grouped.Nodes[0].GetModifier())
+	require.NotNil(t, grouped.Nodes[0].GetSubExpression())
+	require.Len(t, grouped.Nodes[0].GetSubExpression().Nodes, 2)
+	require.Equal(t, "foo", grouped.Nodes[0].GetSubExpression().Nodes[0].GetTerm().GetText())
+	require.Equal(t, "bar", grouped.Nodes[0].GetSubExpression().Nodes[1].GetTerm().GetText())
+
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurShould, grouped.Nodes[1].GetOccur())
+	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierNone, grouped.Nodes[1].GetModifier())
+	require.Equal(t, tipb.FTSBooleanTermType_FTSBooleanTermPrefix, grouped.Nodes[1].GetTerm().GetTermType())
+	require.Equal(t, "baz", grouped.Nodes[1].GetTerm().GetText())
+}
+
 type MockExpr struct {
 	err error
 	t   *types.FieldType

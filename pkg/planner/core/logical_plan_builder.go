@@ -1297,6 +1297,21 @@ func (b *PlanBuilder) implicitProjectGroupingSetCols(projSchema *expression.Sche
 	return projSchema, projNames, projExprs
 }
 
+func resolveExprToVirtualColumn(expr expression.Expression, schema *expression.Schema, evalCtx expression.EvalContext) expression.Expression {
+	if expr == nil || schema == nil {
+		return expr
+	}
+	for _, col := range schema.Columns {
+		if col.VirtualExpr == nil {
+			continue
+		}
+		if col.VirtualExpr.Equal(evalCtx, expr) {
+			return col.Clone().(*expression.Column)
+		}
+	}
+	return expr
+}
+
 // buildProjection returns a Projection plan and non-aux columns length.
 func (b *PlanBuilder) buildProjection(ctx context.Context, p base.LogicalPlan, fields []*ast.SelectField, mapper map[*ast.AggregateFuncExpr]int,
 	windowMapper map[*ast.WindowFuncExpr]int, considerWindow bool, expandGenerateColumn bool) (base.LogicalPlan, []expression.Expression, int, error) {
@@ -1347,6 +1362,7 @@ func (b *PlanBuilder) buildProjection(ctx context.Context, p base.LogicalPlan, f
 		// the column inside aggregate (only sum(b) here) should be resolved to original source column,
 		// while for others, just use expanded columns if exists: a'+ 1, b', group(gid)
 		newExpr = b.replaceGroupingFunc(newExpr)
+		newExpr = resolveExprToVirtualColumn(newExpr, p.Schema(), b.ctx.GetExprCtx().GetEvalCtx())
 
 		// For window functions in the order by clause, we will append an field for it.
 		// We need rewrite the window mapper here so order by clause could find the added field.
@@ -2306,6 +2322,19 @@ func (a *havingWindowAndOrderbyExprResolver) Leave(n ast.Node) (node ast.Node, o
 				Expr:      v,
 				AsName:    ast.NewCIStr(fmt.Sprintf("sel_window_%d", len(a.selectFields))),
 			})
+		}
+	case *ast.MatchAgainst:
+		if a.curClause == orderByClause {
+			asName := ast.NewCIStr(fmt.Sprintf("sel_match_%d", len(a.selectFields)))
+			a.selectFields = append(a.selectFields, &ast.SelectField{
+				Auxiliary:             true,
+				AuxiliaryColInOrderBy: true,
+				Expr:                  v,
+				AsName:                asName,
+			})
+			colExpr := &ast.ColumnNameExpr{Name: &ast.ColumnName{Name: asName}}
+			colExpr.SetType(v.GetType())
+			return colExpr, true
 		}
 	case *ast.WindowSpec:
 		a.inWindowSpec = false
