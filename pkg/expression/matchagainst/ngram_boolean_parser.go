@@ -49,7 +49,9 @@ type ngramPhraseBuilder struct {
 //   - Quoted phrase is normalized into a space-joined string.
 //   - Empty quoted phrases are ignored.
 //   - Only '+' and '-' are accepted as unary operators.
-//   - Operators '(', ')', '<', '>', '~' and '@' are currently unsupported.
+//   - Parenthesized subexpressions are accepted.
+//   - Score modifiers like '~', '>' and '<' remain unsupported.
+//   - Phrase distance is accepted only in the adjacent form "\"...\"@N".
 func ParseNgramBooleanMode(input string) (*BooleanGroup, error) {
 	s := newNgramScanState(input)
 
@@ -105,9 +107,17 @@ func ParseNgramBooleanMode(input string) (*BooleanGroup, error) {
 				}
 				phraseText := strings.Join(curPhrase.words, " ")
 				if phraseText != "" {
+					phrase := &BooleanPhrase{text: phraseText}
+					distance, ok, err := s.consumePhraseDistance()
+					if err != nil {
+						return nil, err
+					}
+					if ok {
+						phrase.Distance = &distance
+					}
 					curGroup.addClause(BooleanClause{
 						Modifier: curPhrase.modifier,
-						Expr:     &BooleanPhrase{text: phraseText},
+						Expr:     phrase,
 					})
 				}
 				curPhrase = nil

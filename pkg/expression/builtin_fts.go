@@ -26,6 +26,7 @@ var (
 	_ functionClass = &ftsMatchWordFunctionClass{}
 	_ functionClass = &ftsMatchPrefixFunctionClass{}
 	_ functionClass = &ftsMatchPhraseFunctionClass{}
+	_ functionClass = &ftsMatchPhraseDistanceFunctionClass{}
 	_ functionClass = &ftsMysqlMatchAgainstFunctionClass{}
 )
 
@@ -33,6 +34,7 @@ var (
 	_ builtinFunc = &builtinFtsMatchWordSig{}
 	_ builtinFunc = &builtinFtsMatchPrefixSig{}
 	_ builtinFunc = &builtinFtsMatchPhraseSig{}
+	_ builtinFunc = &builtinFtsMatchPhraseDistanceSig{}
 	_ builtinFunc = &builtinFtsMysqlMatchAgainstSig{}
 )
 
@@ -49,6 +51,14 @@ type ftsMatchPhraseFunctionClass struct {
 }
 
 type builtinFtsMatchPhraseSig struct {
+	baseBuiltinFunc
+}
+
+type ftsMatchPhraseDistanceFunctionClass struct {
+	baseFunctionClass
+}
+
+type builtinFtsMatchPhraseDistanceSig struct {
 	baseBuiltinFunc
 }
 
@@ -69,6 +79,12 @@ func (b *builtinFtsMatchWordSig) Clone() builtinFunc {
 
 func (b *builtinFtsMatchPhraseSig) Clone() builtinFunc {
 	newSig := &builtinFtsMatchPhraseSig{}
+	newSig.cloneFrom(&b.baseBuiltinFunc)
+	return newSig
+}
+
+func (b *builtinFtsMatchPhraseDistanceSig) Clone() builtinFunc {
+	newSig := &builtinFtsMatchPhraseDistanceSig{}
 	newSig.cloneFrom(&b.baseBuiltinFunc)
 	return newSig
 }
@@ -136,6 +152,15 @@ func (b *builtinFtsMatchPhraseSig) evalReal(ctx EvalContext, row chunk.Row) (flo
 	}
 	// Reject executing match against in TiDB side
 	return 0, false, errors.Errorf("cannot use 'FTS_MATCH_PHRASE()' outside of fulltext index")
+}
+
+func (b *builtinFtsMatchPhraseDistanceSig) evalReal(ctx EvalContext, row chunk.Row) (float64, bool, error) {
+	// Matching NULL returns 0.
+	if b.args[0].(*Constant).Value.IsNull() {
+		return 0, false, nil
+	}
+	// Reject executing match against in TiDB side
+	return 0, false, errors.Errorf("cannot use 'FTS_MATCH_PHRASE_DISTANCE()' outside of fulltext index")
 }
 
 func (b *builtinFtsMysqlMatchAgainstSig) SetModifier(modifier ast.FulltextSearchModifier) {
@@ -303,5 +328,54 @@ func (c *ftsMatchPhraseFunctionClass) getFunction(ctx BuildContext, args []Expre
 
 	sig := &builtinFtsMatchPhraseSig{bf}
 	sig.setPbCode(tipb.ScalarFuncSig_FTSMatchPhrase)
+	return sig, nil
+}
+
+func (c *ftsMatchPhraseDistanceFunctionClass) getFunction(ctx BuildContext, args []Expression) (builtinFunc, error) {
+	if err := c.verifyArgs(args); err != nil {
+		return nil, err
+	}
+
+	argAgainst := args[0]
+	argAgainstConstant, ok := argAgainst.(*Constant)
+	if !ok {
+		return nil, ErrNotSupportedYet.GenWithStackByArgs("match against a non-constant string")
+	}
+	if argAgainstConstant.Value.Kind() != types.KindString && !argAgainstConstant.Value.IsNull() {
+		return nil, ErrNotSupportedYet.GenWithStackByArgs("match against a non-string constant")
+	}
+
+	argDistanceConstant, ok := args[1].(*Constant)
+	if !ok {
+		return nil, ErrNotSupportedYet.GenWithStackByArgs("match phrase distance with a non-constant integer")
+	}
+	if !argDistanceConstant.Value.IsNull() && argDistanceConstant.Value.GetInt64() <= 0 {
+		return nil, ErrNotSupportedYet.GenWithStackByArgs("match phrase distance with a non-positive constant")
+	}
+
+	argsMatch := args[2:]
+	for _, arg := range argsMatch {
+		_, ok := arg.(*Column)
+		if !ok {
+			return nil, ErrNotSupportedYet.GenWithStackByArgs("not matching a column")
+		}
+	}
+
+	argTps := make([]types.EvalType, 0, len(args))
+	argTps = append(argTps, types.ETString, types.ETInt)
+	for _, arg := range argsMatch {
+		if arg.GetType(ctx.GetEvalCtx()).EvalType() != types.ETString {
+			return nil, ErrNotSupportedYet.GenWithStackByArgs("Doesn't support match search on a non-string column without fulltext index")
+		}
+		argTps = append(argTps, types.ETString)
+	}
+
+	bf, err := newBaseBuiltinFuncWithTp(ctx, c.funcName, args, types.ETReal, argTps...)
+	if err != nil {
+		return nil, err
+	}
+
+	sig := &builtinFtsMatchPhraseDistanceSig{bf}
+	sig.setPbCode(tipb.ScalarFuncSig_FTSMatchPhraseDistance)
 	return sig, nil
 }

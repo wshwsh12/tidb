@@ -1049,7 +1049,7 @@ func (ds *DataSource) buildTiCIFTSPathAndCleanUp(
 	evalCtx := ds.SCtx().GetExprCtx().GetEvalCtx()
 	client := ds.SCtx().GetBuildPBCtx().Client
 	pbConverter := expression.NewPBConverterForTiCI(client, evalCtx)
-	pbExprs := make([]tipb.Expr, 0, len(matchedCondIdxes))
+	pbExprs := make([]*tipb.Expr, 0, len(matchedCondIdxes))
 	var booleanQuery *tipb.FTSBooleanQuery
 	queryType := tipb.FTSQueryType_FTSQueryTypeNoScore
 	// It represents the TiCI search functions currently.
@@ -1078,7 +1078,7 @@ func (ds *DataSource) buildTiCIFTSPathAndCleanUp(
 			if pbExpr == nil {
 				return errors.New("Failed to convert FTS function to PB expression")
 			}
-			pbExprs = append(pbExprs, *pbExpr)
+			pbExprs = append(pbExprs, pbExpr)
 
 			if query != nil {
 				booleanQuery = query
@@ -1094,7 +1094,7 @@ func (ds *DataSource) buildTiCIFTSPathAndCleanUp(
 			// If the expression is not converted to PB, we should return an error.
 			return errors.New("Failed to convert FTS function to PB expression")
 		}
-		pbExprs = append(pbExprs, *pbExpr)
+		pbExprs = append(pbExprs, pbExpr)
 		ds.PossibleAccessPaths[0].AccessConds = append(ds.PossibleAccessPaths[0].AccessConds, matchedCond)
 	}
 

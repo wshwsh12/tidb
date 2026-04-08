@@ -14,7 +14,11 @@
 
 package matchagainst
 
-import "unicode"
+import (
+	"unicode"
+
+	"github.com/pingcap/errors"
+)
 
 type ngramTokType uint8
 
@@ -73,7 +77,7 @@ func isNgramWordChar(ch rune) bool {
 
 func isNgramUnsupportedOp(ch rune) bool {
 	switch ch {
-	case '(', ')', '<', '>', '~', '@':
+	case '<', '>', '~', '@':
 		return true
 	default:
 		return false
@@ -107,6 +111,22 @@ func (s *ngramScanState) nextToken() ngramToken {
 		}
 
 		if !s.inQuote {
+			if ch == '(' {
+				s.i++
+				s.prevChar = ch
+				return ngramToken{
+					typ:   ngramTokLParen,
+					yesno: yesno,
+				}
+			}
+			if ch == ')' {
+				s.i++
+				s.prevChar = ch
+				return ngramToken{
+					typ:   ngramTokRParen,
+					yesno: yesno,
+				}
+			}
 			if isNgramUnsupportedOp(ch) {
 				s.i++
 				return ngramToken{
@@ -180,4 +200,25 @@ func (s *ngramScanState) nextToken() ngramToken {
 		trunc: trunc,
 		yesno: yesno,
 	}
+}
+
+func (s *ngramScanState) consumePhraseDistance() (int, bool, error) {
+	if s.i >= len(s.runes) || s.runes[s.i] != '@' {
+		return 0, false, nil
+	}
+	s.i++
+	if s.i >= len(s.runes) || !unicode.IsDigit(s.runes[s.i]) {
+		return 0, false, errors.New("phrase distance must be a positive integer")
+	}
+
+	distance := 0
+	for s.i < len(s.runes) && unicode.IsDigit(s.runes[s.i]) {
+		distance = distance*10 + int(s.runes[s.i]-'0')
+		s.i++
+	}
+	if distance <= 0 {
+		return 0, false, errors.New("phrase distance must be a positive integer")
+	}
+	s.prevChar = 'A'
+	return distance, true, nil
 }

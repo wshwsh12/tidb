@@ -1230,7 +1230,7 @@ func checkIndexOptions(isColumnar bool, indexOptions *ast.IndexOption) error {
 
 func validateFullTextParserName(parserName ast.CIStr) error {
 	parserType := model.GetFullTextParserTypeBySQLName(parserName.L)
-	if parserType != model.FullTextParserTypeStandardV1 && parserType != model.FullTextParserTypeNgramV1 {
+	if parserType != model.FullTextParserTypeStandardV1 && parserType != model.FullTextParserTypeMultilingualV1 && parserType != model.FullTextParserTypeNgramV1 {
 		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported parser '%s'", parserName.O)
 	}
 	return nil

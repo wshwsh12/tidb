@@ -983,6 +983,7 @@ var funcs = map[string]functionClass{
 	ast.FTSMatchWord:         &ftsMatchWordFunctionClass{baseFunctionClass{ast.FTSMatchWord, 2, -1}},
 	ast.FTSMatchPrefix:       &ftsMatchPrefixFunctionClass{baseFunctionClass{ast.FTSMatchPrefix, 2, -1}},
 	ast.FTSMatchPhrase:       &ftsMatchPhraseFunctionClass{baseFunctionClass{ast.FTSMatchPhrase, 2, -1}},
+	ast.FTSMatchPhraseDistance: &ftsMatchPhraseDistanceFunctionClass{baseFunctionClass{ast.FTSMatchPhraseDistance, 3, -1}},
 	ast.FTSMysqlMatchAgainst: &ftsMysqlMatchAgainstFunctionClass{baseFunctionClass{ast.FTSMysqlMatchAgainst, 2, -1}},
 
 	// TiDB internal function.

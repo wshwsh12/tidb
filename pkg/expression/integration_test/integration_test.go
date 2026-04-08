@@ -195,7 +195,14 @@ func TestFTSParser(t *testing.T) {
 	))
 	tk.MustExec("drop table tx")
 
-	tk.MustContainErrMsg("create table tx (a TEXT, FULLTEXT (a) WITH PARSER multilingual)", "Unsupported parser 'multilingual'")
+	tk.MustExec("create table tx (a TEXT, FULLTEXT (a) WITH PARSER multilingual)")
+	tk.MustQuery("show create table tx").Check(testkit.Rows(
+		"tx CREATE TABLE `tx` (\n" +
+			"  `a` text DEFAULT NULL,\n" +
+			"  FULLTEXT INDEX `a`(`a`) WITH PARSER MULTILINGUAL\n" +
+			") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
+	))
+	tk.MustExec("drop table tx")
 
 	tk.MustContainErrMsg("create table tx (a TEXT, FULLTEXT (a) WITH PARSER abc)", "Unsupported parser 'abc'")
 }

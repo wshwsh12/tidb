@@ -36,7 +36,15 @@ var FTSFuncMap map[string]struct{} = map[string]struct{}{
 	ast.FTSMatchWord:         {},
 	ast.FTSMatchPrefix:       {},
 	ast.FTSMatchPhrase:       {},
+	ast.FTSMatchPhraseDistance: {},
 	ast.FTSMysqlMatchAgainst: {},
+}
+
+func ftsQueryArgStartIdx(funcName string) int {
+	if funcName == ast.FTSMatchPhraseDistance {
+		return 2
+	}
+	return 1
 }
 
 // ContainsFullTextSearchFn recursively checks whether the expression tree contains a
@@ -71,9 +79,10 @@ func ExprCoveredByOneTiCIIndex(
 	switch x := expr.(type) {
 	case *ScalarFunction:
 		switch x.FuncName.L {
-		case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase:
-			if len(x.GetArgs()) == 2 {
-				arg, ok := x.GetArgs()[1].(*Column)
+		case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase, ast.FTSMatchPhraseDistance:
+			startIdx := ftsQueryArgStartIdx(x.FuncName.L)
+			if len(x.GetArgs()) == startIdx+1 {
+				arg, ok := x.GetArgs()[startIdx].(*Column)
 				return ok && ftsCols.Has(int(arg.ID))
 			}
 			matchedColSet, ok := collectFTSMatchedColumnSet(x)
@@ -121,8 +130,8 @@ func DiagnoseUnmatchedFTSIndexReason(
 	switch x := expr.(type) {
 	case *ScalarFunction:
 		switch x.FuncName.L {
-		case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase:
-			if len(x.GetArgs()) <= 2 {
+		case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase, ast.FTSMatchPhraseDistance:
+			if len(x.GetArgs()) <= ftsQueryArgStartIdx(x.FuncName.L)+1 {
 				return ""
 			}
 			matchedColSet, ok := collectFTSMatchedColumnSet(x)
@@ -159,7 +168,7 @@ func DiagnoseUnmatchedFTSIndexReason(
 
 func collectFTSMatchedColumnSet(expr *ScalarFunction) (intset.FastIntSet, bool) {
 	matchedColSet := intset.NewFastIntSet()
-	for i := 1; i < len(expr.GetArgs()); i++ {
+	for i := ftsQueryArgStartIdx(expr.FuncName.L); i < len(expr.GetArgs()); i++ {
 		arg, ok := expr.GetArgs()[i].(*Column)
 		if !ok {
 			return intset.FastIntSet{}, false
@@ -185,7 +194,7 @@ func CollectColumnIDForFTS(expr Expression, idSet *intset.FastIntSet) {
 	case *ScalarFunction:
 		startIdx := 0
 		if _, ok := FTSFuncMap[x.FuncName.L]; ok {
-			startIdx = 1 // Skip the first argument which is the query string.
+			startIdx = ftsQueryArgStartIdx(x.FuncName.L) // Skip query-string prefix arguments.
 		}
 		for i := startIdx; i < len(x.GetArgs()); i++ {
 			CollectColumnIDForFTS(x.GetArgs()[i], idSet)
@@ -384,18 +393,23 @@ func buildTiCIBooleanNode(
 
 	switch expr := clause.Expr.(type) {
 	case *matchagainst.BooleanTerm:
-		node.Expr = &tipb.FTSBooleanNode_Term{Term: buildTiCIBooleanTerm(expr, parserType)}
+		node.Node = &tipb.FTSBooleanNode_Term{Term: buildTiCIBooleanTerm(expr, parserType)}
 	case *matchagainst.BooleanPhrase:
-		node.Expr = &tipb.FTSBooleanNode_Term{Term: &tipb.FTSBooleanTerm{
-			TermType: tipb.FTSBooleanTermType_FTSBooleanTermPhrase,
-			Text:     expr.Text(),
+		phraseDistance := uint32(0)
+		if expr.Distance != nil {
+			phraseDistance = uint32(*expr.Distance)
+		}
+		node.Node = &tipb.FTSBooleanNode_Term{Term: &tipb.FTSBooleanTerm{
+			TermType:       tipb.FTSBooleanTermType_FTSBooleanTermPhrase,
+			Text:           expr.Text(),
+			PhraseDistance: phraseDistance,
 		}}
 	case *matchagainst.BooleanGroup:
 		sub, err := buildTiCIBooleanQueryFromGroup(expr, parserType)
 		if err != nil {
 			return nil, err
 		}
-		node.Expr = &tipb.FTSBooleanNode_SubExpression{SubExpression: sub}
+		node.Node = &tipb.FTSBooleanNode_SubExpression{SubExpression: sub}
 	default:
 		return nil, errors.Errorf("unsupported boolean expression: %T", clause.Expr)
 	}
@@ -505,6 +519,15 @@ func rewriteBooleanClauseToFTSExpr(
 		}
 		return rewriteSingleQueryToFTSExpr(bctx, funcName, x.Text(), matchCols), nil
 	case *matchagainst.BooleanPhrase:
+		if x.Distance != nil {
+			return rewriteSingleQueryToFTSExprWithDistance(
+				bctx,
+				ast.FTSMatchPhraseDistance,
+				x.Text(),
+				*x.Distance,
+				matchCols,
+			), nil
+		}
 		return rewriteSingleQueryToFTSExpr(bctx, ast.FTSMatchPhrase, x.Text(), matchCols), nil
 	case *matchagainst.BooleanGroup:
 		return rewriteBooleanGroupToFTSExpr(bctx, matchCols, x, parserType, types.NewFieldType(mysql.TypeTiny))
@@ -523,6 +546,26 @@ func rewriteSingleQueryToFTSExpr(
 	args = append(args, &Constant{
 		Value:   types.NewStringDatum(query),
 		RetType: types.NewFieldType(mysql.TypeString),
+	})
+	args = append(args, matchCols...)
+	return NewFunctionInternal(bctx, funcName, types.NewFieldType(mysql.TypeDouble), args...)
+}
+
+func rewriteSingleQueryToFTSExprWithDistance(
+	bctx BuildContext,
+	funcName string,
+	query string,
+	distance int,
+	matchCols []Expression,
+) Expression {
+	args := make([]Expression, 0, len(matchCols)+2)
+	args = append(args, &Constant{
+		Value:   types.NewStringDatum(query),
+		RetType: types.NewFieldType(mysql.TypeString),
+	})
+	args = append(args, &Constant{
+		Value:   types.NewIntDatum(int64(distance)),
+		RetType: types.NewFieldType(mysql.TypeLonglong),
 	})
 	args = append(args, matchCols...)
 	return NewFunctionInternal(bctx, funcName, types.NewFieldType(mysql.TypeDouble), args...)

@@ -452,6 +452,8 @@ func scalarExprSupportedByFlash(ctx EvalContext, function *ScalarFunction) bool 
 		return true
 	case ast.FTSMatchWord:
 		return true
+	case ast.FTSMatchPhraseDistance:
+		return true
 	case ast.Grouping: // grouping function for grouping sets identification.
 		return true
 	}
@@ -460,7 +462,7 @@ func scalarExprSupportedByFlash(ctx EvalContext, function *ScalarFunction) bool 
 
 func scalarExprSupportedByTiCI(_ EvalContext, function *ScalarFunction) bool {
 	switch function.FuncName.L {
-	case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase, ast.FTSMysqlMatchAgainst:
+	case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase, ast.FTSMatchPhraseDistance, ast.FTSMysqlMatchAgainst:
 		return true
 	default:
 		return false

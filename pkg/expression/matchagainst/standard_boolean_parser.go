@@ -39,7 +39,7 @@ import (
 //   - Leading '*' before a term is accepted but ignored.
 //   - Trailing '*' after a term sets the term's wildcard flag.
 //   - Empty phrases "\"\"" are ignored.
-//   - The STANDARD parser path currently rejects '@' phrase-distance syntax.
+//   - Phrase distance is accepted only in the adjacent form "\"...\"@N".
 func ParseStandardBooleanMode(input string) (*BooleanGroup, error) {
 	tokens, err := tokenizeStandardBooleanMode(input)
 	if err != nil {
@@ -190,7 +190,15 @@ func (p *standardBooleanParser) parsePhraseExpr() (*BooleanPhrase, error) {
 	if len(inner) == 0 {
 		return nil, nil
 	}
-	return &BooleanPhrase{text: inner}, nil
+	phrase := &BooleanPhrase{text: inner}
+	distance, ok, err := p.tryConsumePhraseDistance(t, raw)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		phrase.Distance = &distance
+	}
+	return phrase, nil
 }
 
 // applyTrailingWildcardIfPresent consumes a trailing '*' after a term and marks the term as wildcard.
@@ -199,6 +207,32 @@ func (p *standardBooleanParser) applyTrailingWildcardIfPresent(term *BooleanTerm
 		p.consume()
 		term.Wildcard = true
 	}
+}
+
+func (p *standardBooleanParser) tryConsumePhraseDistance(
+	textToken standardBooleanToken,
+	raw string,
+) (int, bool, error) {
+	at := p.peek()
+	if at.kind != standardBooleanTokenOp || at.op != '@' {
+		return 0, false, nil
+	}
+	if at.pos != textToken.pos+len(raw) {
+		return 0, false, nil
+	}
+	p.consume()
+
+	num := p.peek()
+	if num.kind != standardBooleanTokenNum || num.pos != at.pos+1 {
+		return 0, false, errors.Errorf("phrase distance must be a positive integer at pos %d", at.pos)
+	}
+	p.consume()
+
+	distance, err := strconv.Atoi(num.raw)
+	if err != nil || distance <= 0 {
+		return 0, false, errors.Errorf("phrase distance must be a positive integer at pos %d", num.pos)
+	}
+	return distance, true, nil
 }
 
 func (p *standardBooleanParser) peek() standardBooleanToken {

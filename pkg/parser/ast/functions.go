@@ -369,6 +369,7 @@ const (
 	FTSMatchWord         = "fts_match_word"
 	FTSMatchPrefix       = "fts_match_prefix"
 	FTSMatchPhrase       = "fts_match_phrase"
+	FTSMatchPhraseDistance = "fts_match_phrase_distance"
 	FTSMysqlMatchAgainst = "match_against"
 
 	// TiDB internal function.

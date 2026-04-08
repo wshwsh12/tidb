@@ -49,6 +49,21 @@ func TestParseStandardBooleanMode(t *testing.T) {
 			output: `M[] S["hello world"] N[]`,
 		},
 		{
+			name:   "phrase: phrase distance is accepted",
+			input:  `"hello world"@10`,
+			output: `M[] S["hello world"@10] N[]`,
+		},
+		{
+			name:   "phrase: '+' applies to phrase distance",
+			input:  `+"hello world"@2`,
+			output: `M["hello world"@2] S[] N[]`,
+		},
+		{
+			name:   "phrase: '~' applies to phrase distance",
+			input:  `~"hello world"@3`,
+			output: `M[] S[~"hello world"@3] N[]`,
+		},
+		{
 			name:   "phrase: '%' allowed inside phrase",
 			input:  `"foo%bar"`,
 			output: `M[] S["foo%bar"] N[]`,
@@ -315,11 +330,6 @@ func TestParseStandardBooleanMode(t *testing.T) {
 		{
 			name:        "error: dangling '@' after a term",
 			input:       `foo@`,
-			errContains: "unexpected token",
-		},
-		{
-			name:        "error: phrase distance '@NUM' is rejected",
-			input:       `"hello world"@10`,
 			errContains: "unexpected token",
 		},
 		{

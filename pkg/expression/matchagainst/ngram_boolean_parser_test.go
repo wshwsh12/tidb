@@ -16,6 +16,7 @@ package matchagainst
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -56,7 +57,15 @@ func dumpExpr(expr BooleanExpr) string {
 		}
 		return b.String()
 	case *BooleanPhrase:
-		return fmt.Sprintf("%q", x.text)
+		phrase := fmt.Sprintf("%q", x.text)
+		if x.Distance == nil {
+			return phrase
+		}
+		var b strings.Builder
+		b.WriteString(phrase)
+		b.WriteByte('@')
+		b.WriteString(strconv.Itoa(*x.Distance))
+		return b.String()
 	case *BooleanGroup:
 		return "(" + dumpGroup(x) + ")"
 	default:
@@ -179,14 +188,24 @@ func TestParseNgramBooleanMode(t *testing.T) {
 			wantErrContains: "unsupported operator '~'",
 		},
 		{
-			name:            "reject unsupported operator '('",
-			input:           "(foo)",
-			wantErrContains: "unsupported operator '('",
+			name:  "group is accepted",
+			input: "(foo bar)",
+			want:  "M[] S[(M[] S[foo bar] N[])] N[]",
 		},
 		{
-			name:            "reject unsupported operator ')'",
+			name:  "group with plus is accepted",
+			input: "+(foo bar)",
+			want:  "M[+(M[] S[foo bar] N[])] S[] N[]",
+		},
+		{
+			name:  "group with phrase distance is accepted",
+			input: `+("foo bar"@2)`,
+			want:  `M[+(M[] S["foo bar"@2] N[])] S[] N[]`,
+		},
+		{
+			name:            "reject unmatched operator ')'",
 			input:           "foo)",
-			wantErrContains: "unsupported operator ')'",
+			wantErrContains: "unmatched ')'",
 		},
 		{
 			name:  "only negative terms",
@@ -254,9 +273,14 @@ func TestParseNgramBooleanMode(t *testing.T) {
 			want:  `M[+bar] S["foo"] N[]`,
 		},
 		{
-			name:            "reject unsupported operator '@' after phrase",
-			input:           `"foo"@2 bar`,
-			wantErrContains: "unsupported operator '@'",
+			name:  "quoted phrase distance",
+			input: `"foo bar"@2`,
+			want:  `M[] S["foo bar"@2] N[]`,
+		},
+		{
+			name:  "quoted phrase distance with prefix",
+			input: `+"foo bar"@2`,
+			want:  `M[+"foo bar"@2] S[] N[]`,
 		},
 		{
 			name:            "reject unsupported operator '@'",

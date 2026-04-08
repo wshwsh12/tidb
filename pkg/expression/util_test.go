@@ -598,6 +598,7 @@ func TestRewriteMySQLMatchAgainst(t *testing.T) {
 	type ftsLeaf struct {
 		funcName string
 		query    string
+		distance int
 		columns  []string
 		underNot bool
 	}
@@ -622,16 +623,25 @@ func TestRewriteMySQLMatchAgainst(t *testing.T) {
 				return
 			}
 			switch sf.FuncName.L {
-			case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase:
+			case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase, ast.FTSMatchPhraseDistance:
 				leaf := ftsLeaf{funcName: sf.FuncName.L, underNot: underNot}
 				if len(sf.GetArgs()) > 0 {
 					if c, ok := sf.GetArgs()[0].(*Constant); ok {
 						leaf.query = c.Value.GetString()
 					}
 				}
-				if len(sf.GetArgs()) > 1 {
-					leaf.columns = make([]string, 0, len(sf.GetArgs())-1)
-					for i := 1; i < len(sf.GetArgs()); i++ {
+				colStart := 1
+				if sf.FuncName.L == ast.FTSMatchPhraseDistance {
+					if len(sf.GetArgs()) > 1 {
+						if c, ok := sf.GetArgs()[1].(*Constant); ok {
+							leaf.distance = int(c.Value.GetInt64())
+						}
+					}
+					colStart = 2
+				}
+				if len(sf.GetArgs()) > colStart {
+					leaf.columns = make([]string, 0, len(sf.GetArgs())-colStart)
+					for i := colStart; i < len(sf.GetArgs()); i++ {
 						if col, ok := sf.GetArgs()[i].(*Column); ok {
 							leaf.columns = append(leaf.columns, col.OrigName)
 						}
@@ -655,9 +665,15 @@ func TestRewriteMySQLMatchAgainst(t *testing.T) {
 				return
 			}
 			switch sf.FuncName.L {
-			case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase:
-				require.Len(t, sf.GetArgs(), colCount+1)
-				for i := 1; i < len(sf.GetArgs()); i++ {
+			case ast.FTSMatchWord, ast.FTSMatchPrefix, ast.FTSMatchPhrase, ast.FTSMatchPhraseDistance:
+				expectedArgs := colCount + 1
+				colStart := 1
+				if sf.FuncName.L == ast.FTSMatchPhraseDistance {
+					expectedArgs++
+					colStart = 2
+				}
+				require.Len(t, sf.GetArgs(), expectedArgs)
+				for i := colStart; i < len(sf.GetArgs()); i++ {
 					_, ok := sf.GetArgs()[i].(*Column)
 					require.True(t, ok)
 				}
@@ -718,6 +734,14 @@ func TestRewriteMySQLMatchAgainst(t *testing.T) {
 		{funcName: ast.FTSMatchPhrase, query: "hello world", columns: []string{"title"}},
 	}, collectFTSLeaves(expr))
 
+	expr, _, err = RewriteMySQLMatchAgainstRecursively(ctx, buildMatchAgainst(`"hello world"@2`), model.FullTextParserTypeStandardV1)
+	require.NoError(t, err)
+	require.False(t, hasMySQLMatchAgainst(expr))
+	require.ElementsMatch(t, []ftsLeaf{
+		{funcName: ast.FTSMatchPhraseDistance, query: "hello world", distance: 2, columns: []string{"title"}},
+	}, collectFTSLeaves(expr))
+	assertFTSLeafArgCols(expr, 1)
+
 	expr, _, err = RewriteMySQLMatchAgainstRecursively(ctx, buildMatchAgainst("hello"), model.FullTextParserTypeNgramV1)
 	require.NoError(t, err)
 	require.False(t, hasMySQLMatchAgainst(expr))
@@ -732,6 +756,14 @@ func TestRewriteMySQLMatchAgainst(t *testing.T) {
 	require.ElementsMatch(t, []ftsLeaf{
 		{funcName: ast.FTSMatchPhrase, query: "a b", columns: []string{"title"}},
 	}, collectFTSLeaves(expr))
+
+	expr, _, err = RewriteMySQLMatchAgainstRecursively(ctx, buildMatchAgainst(`"a b"@3`), model.FullTextParserTypeNgramV1)
+	require.NoError(t, err)
+	require.False(t, hasMySQLMatchAgainst(expr))
+	require.ElementsMatch(t, []ftsLeaf{
+		{funcName: ast.FTSMatchPhraseDistance, query: "a b", distance: 3, columns: []string{"title"}},
+	}, collectFTSLeaves(expr))
+	assertFTSLeafArgCols(expr, 1)
 
 	expr, _, err = RewriteMySQLMatchAgainstRecursively(ctx, buildMatchAgainst("+apple -banana"), model.FullTextParserTypeStandardV1)
 	require.NoError(t, err)
@@ -903,6 +935,15 @@ func TestBuildTiCIBooleanQuery(t *testing.T) {
 	require.Equal(t, tipb.FTSBooleanModifier_FTSBooleanModifierNone, grouped.Nodes[1].GetModifier())
 	require.Equal(t, tipb.FTSBooleanTermType_FTSBooleanTermPrefix, grouped.Nodes[1].GetTerm().GetTermType())
 	require.Equal(t, "baz", grouped.Nodes[1].GetTerm().GetText())
+
+	distanceQuery, err := BuildTiCIBooleanQuery(buildMatchAgainst(`+"foo bar"@3`, titleCol), model.FullTextParserTypeStandardV1)
+	require.NoError(t, err)
+	require.NotNil(t, distanceQuery)
+	require.Len(t, distanceQuery.Nodes, 1)
+	require.Equal(t, tipb.FTSBooleanOccur_FTSBooleanOccurMust, distanceQuery.Nodes[0].GetOccur())
+	require.Equal(t, tipb.FTSBooleanTermType_FTSBooleanTermPhrase, distanceQuery.Nodes[0].GetTerm().GetTermType())
+	require.Equal(t, "foo bar", distanceQuery.Nodes[0].GetTerm().GetText())
+	require.EqualValues(t, 3, distanceQuery.Nodes[0].GetTerm().GetPhraseDistance())
 }
 
 type MockExpr struct {

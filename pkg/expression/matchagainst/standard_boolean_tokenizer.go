@@ -55,6 +55,7 @@ func tokenizeStandardBooleanMode(input string) ([]standardBooleanToken, error) {
 		ch := in[i]
 
 		if isStandardBooleanWhitespace(ch) {
+			prevWasAt = false
 			i++
 			continue
 		}
