@@ -391,6 +391,22 @@ func NewExtraVersionColInfo() *ColumnInfo {
 	return colInfo
 }
 
+// NewVirtualFTSScoreColInfo mocks a column info for the virtual TiCI relevance score column.
+func NewVirtualFTSScoreColInfo() *ColumnInfo {
+	colInfo := &ColumnInfo{
+		ID:   VirtualColFTSScoreID,
+		Name: VirtualColFTSScoreName,
+	}
+	colInfo.SetType(mysql.TypeDouble)
+	colInfo.SetFlag(mysql.NotNullFlag)
+	flen, decimal := mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeDouble)
+	colInfo.SetFlen(flen)
+	colInfo.SetDecimal(decimal)
+	colInfo.SetCharset(charset.CharsetBin)
+	colInfo.SetCollate(charset.CollationBin)
+	return colInfo
+}
+
 // NewExtraCommitTSColInfo mocks a column info for extra commit ts column.
 func NewExtraCommitTSColInfo() *ColumnInfo {
 	colInfo := &ColumnInfo{

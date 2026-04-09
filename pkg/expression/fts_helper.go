@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/intset"
+	"github.com/pingcap/tipb/go-tipb"
 )
 
 // FTSInfo is an easy to use struct for interpreting a FullTextSearch expression.
@@ -309,6 +310,125 @@ func parseMySQLMatchAgainstBooleanMode(
 		return matchagainst.ParseStandardBooleanMode(patternStr)
 	default:
 		return nil, errors.Errorf("unsupported fulltext parser type: %s", parserType)
+	}
+}
+
+func BuildTiCIBooleanQuery(
+	scalarFunc *ScalarFunction,
+	parserType model.FullTextParserType,
+) (*tipb.FTSBooleanQuery, error) {
+	sig, ok := scalarFunc.Function.(*builtinFtsMysqlMatchAgainstSig)
+	if !ok {
+		return nil, errors.Errorf("unexpected builtin signature for %s: %T", ast.FTSMysqlMatchAgainst, scalarFunc.Function)
+	}
+	if sig.modifier != ast.FulltextSearchModifierBooleanMode {
+		return nil, errors.Errorf("Currently TiDB only supports BOOLEAN MODE in MATCH AGAINST")
+	}
+	if scalarFunc.GetArgs()[0].(*Constant).Value.IsNull() {
+		return nil, nil
+	}
+
+	group, err := parseMySQLMatchAgainstBooleanMode(scalarFunc, parserType)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateMySQLMatchAgainstBooleanGroup(group); err != nil {
+		return nil, err
+	}
+	return buildTiCIBooleanQueryFromGroup(group, parserType)
+}
+
+func buildTiCIBooleanQueryFromGroup(
+	group *matchagainst.BooleanGroup,
+	parserType model.FullTextParserType,
+) (*tipb.FTSBooleanQuery, error) {
+	if group == nil {
+		return nil, errors.New("invalid nil boolean group")
+	}
+
+	nodes := make([]*tipb.FTSBooleanNode, 0, len(group.Must)+len(group.Should)+len(group.MustNot))
+	appendNodes := func(clauses []matchagainst.BooleanClause, occur tipb.FTSBooleanOccur) error {
+		for _, clause := range clauses {
+			node, err := buildTiCIBooleanNode(clause, occur, parserType)
+			if err != nil {
+				return err
+			}
+			nodes = append(nodes, node)
+		}
+		return nil
+	}
+	if err := appendNodes(group.Must, tipb.FTSBooleanOccur_FTSBooleanOccurMust); err != nil {
+		return nil, err
+	}
+	if err := appendNodes(group.Should, tipb.FTSBooleanOccur_FTSBooleanOccurShould); err != nil {
+		return nil, err
+	}
+	if err := appendNodes(group.MustNot, tipb.FTSBooleanOccur_FTSBooleanOccurMustNot); err != nil {
+		return nil, err
+	}
+	return &tipb.FTSBooleanQuery{Nodes: nodes}, nil
+}
+
+func buildTiCIBooleanNode(
+	clause matchagainst.BooleanClause,
+	occur tipb.FTSBooleanOccur,
+	parserType model.FullTextParserType,
+) (*tipb.FTSBooleanNode, error) {
+	node := &tipb.FTSBooleanNode{
+		Occur:    occur,
+		Modifier: tipb.FTSBooleanModifier_FTSBooleanModifierNone,
+	}
+	if occur == tipb.FTSBooleanOccur_FTSBooleanOccurShould {
+		node.Modifier = mapTiCIBooleanModifier(clause.Modifier)
+	}
+
+	switch expr := clause.Expr.(type) {
+	case *matchagainst.BooleanTerm:
+		node.Node = &tipb.FTSBooleanNode_Term{Term: buildTiCIBooleanTerm(expr, parserType)}
+	case *matchagainst.BooleanPhrase:
+		node.Node = &tipb.FTSBooleanNode_Term{Term: &tipb.FTSBooleanTerm{
+			TermType: tipb.FTSBooleanTermType_FTSBooleanTermPhrase,
+			Text:     expr.Text(),
+		}}
+	case *matchagainst.BooleanGroup:
+		sub, err := buildTiCIBooleanQueryFromGroup(expr, parserType)
+		if err != nil {
+			return nil, err
+		}
+		node.Node = &tipb.FTSBooleanNode_SubExpression{SubExpression: sub}
+	default:
+		return nil, errors.Errorf("unsupported boolean expression: %T", clause.Expr)
+	}
+	return node, nil
+}
+
+func buildTiCIBooleanTerm(
+	term *matchagainst.BooleanTerm,
+	parserType model.FullTextParserType,
+) *tipb.FTSBooleanTerm {
+	termType := tipb.FTSBooleanTermType_FTSBooleanTermWord
+	switch {
+	case term.Wildcard:
+		termType = tipb.FTSBooleanTermType_FTSBooleanTermPrefix
+	case parserType == model.FullTextParserTypeNgramV1:
+		termType = tipb.FTSBooleanTermType_FTSBooleanTermPhrase
+	}
+	return &tipb.FTSBooleanTerm{
+		TermType: termType,
+		Text:     term.Text(),
+	}
+}
+
+func mapTiCIBooleanModifier(modifier matchagainst.BooleanModifier) tipb.FTSBooleanModifier {
+	switch modifier {
+	case matchagainst.BooleanModifierBoost:
+		return tipb.FTSBooleanModifier_FTSBooleanModifierBoost
+	case matchagainst.BooleanModifierDeBoost:
+		return tipb.FTSBooleanModifier_FTSBooleanModifierDeBoost
+	case matchagainst.BooleanModifierNegate:
+		return tipb.FTSBooleanModifier_FTSBooleanModifierNegate
+	default:
+		return tipb.FTSBooleanModifier_FTSBooleanModifierNone
 	}
 }
 

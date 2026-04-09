@@ -209,6 +209,7 @@ func TestTiCIMatchAgainstValidation(t *testing.T) {
 	store := testkit.CreateMockStoreWithSchemaLease(t, 1*time.Second, mockstore.WithMockTiFlash(2))
 	defer ingesttestutil.InjectMockBackendCtx(t, store)()
 	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("set @@global.tidb_cloud_storage_uri = ''")
 
 	tiflash := infosync.NewMockTiFlash()
 	infosync.SetMockTiFlash(tiflash)
@@ -265,6 +266,21 @@ func TestTiCIMatchAgainstValidation(t *testing.T) {
 	tk.MustQuery(
 		"explain format='brief' select * from t1 where match(title) against ('+hello world' IN BOOLEAN MODE)",
 	).CheckNotContain(`world`)
+	tk.MustQuery(
+		"explain format='brief' select match(title) against ('hello' IN BOOLEAN MODE) as score from t1 where match(title) against ('hello' IN BOOLEAN MODE)",
+	)
+	tk.MustContainErrMsg(
+		"explain format='brief' select * from t1 where match(title) against ('hello' IN BOOLEAN MODE) order by match(title) against ('hello' IN BOOLEAN MODE)",
+		"Currently 'FTS_MATCH_WORD()' in ORDER BY clause is not supported",
+	)
+	tk.MustContainErrMsg(
+		"explain format='brief' select match(title) against ('hello' IN BOOLEAN MODE) as score from t1 where match(title) against ('hello' IN BOOLEAN MODE) order by score",
+		"Currently 'FTS_MATCH_WORD()' in ORDER BY clause is not supported",
+	)
+	tk.MustContainErrMsg(
+		"explain format='brief' select match(title) against ('hello' IN BOOLEAN MODE) as score from t1 where match(title) against ('hello' IN BOOLEAN MODE) order by 1 limit 1",
+		"Currently 'FTS_MATCH_WORD()' in ORDER BY is not supported",
+	)
 
 	// Parser should follow the fulltext index parser type.
 	tk.MustContainErrMsg(

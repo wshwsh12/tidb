@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "logicalop",
@@ -73,6 +73,7 @@ go_library(
         "//pkg/statistics",
         "//pkg/table",
         "//pkg/types",
+        "//pkg/util",
         "//pkg/util/collate",
         "//pkg/util/dbterror/plannererrors",
         "//pkg/util/hint",
@@ -96,4 +97,25 @@ filegroup(
         "shallow_ref_generated.go",
     ],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "logicalop_test",
+    timeout = "short",
+    srcs = ["logical_datasource_tici_test.go"],
+    embed = [":logicalop"],
+    flaky = True,
+    shard_count = 3,
+    deps = [
+        "//pkg/expression",
+        "//pkg/meta/model",
+        "//pkg/parser/ast",
+        "//pkg/parser/mysql",
+        "//pkg/planner/util",
+        "//pkg/types",
+        "//pkg/util/intset",
+        "//pkg/util/mock",
+        "@com_github_pingcap_tipb//go-tipb",
+        "@com_github_stretchr_testify//require",
+    ],
 )

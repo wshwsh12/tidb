@@ -28,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/pingcap/tidb/pkg/util/mock"
+	"github.com/pingcap/tipb/go-tipb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -828,6 +829,59 @@ func TestRewriteMySQLMatchAgainst(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported fulltext parser type")
 	require.True(t, hasMySQLMatchAgainst(expr))
+}
+
+func TestBuildTiCIBooleanQuery(t *testing.T) {
+	ctx := mock.NewContext()
+	titleCol := &Column{
+		RetType:  types.NewFieldType(mysql.TypeString),
+		OrigName: "title",
+	}
+
+	buildMatchAgainst := func(pattern string, cols ...*Column) *ScalarFunction {
+		args := make([]Expression, 0, 1+len(cols))
+		args = append(args, &Constant{
+			Value:   types.NewStringDatum(pattern),
+			RetType: types.NewFieldType(mysql.TypeString),
+		})
+		for _, col := range cols {
+			args = append(args, col)
+		}
+		expr, err := NewFunction(ctx, ast.FTSMysqlMatchAgainst, types.NewFieldType(mysql.TypeDouble), args...)
+		require.NoError(t, err)
+
+		sf, ok := expr.(*ScalarFunction)
+		require.True(t, ok)
+		require.NoError(t, SetFTSMysqlMatchAgainstModifier(sf, ast.FulltextSearchModifierBooleanMode))
+		return sf
+	}
+
+	assertTermNode := func(node *tipb.FTSBooleanNode, occur tipb.FTSBooleanOccur, modifier tipb.FTSBooleanModifier, text string, termType tipb.FTSBooleanTermType) {
+		require.NotNil(t, node)
+		require.Equal(t, occur, node.GetOccur())
+		require.Equal(t, modifier, node.GetModifier())
+		require.Nil(t, node.GetSubExpression())
+		term := node.GetTerm()
+		require.NotNil(t, term)
+		require.Equal(t, text, term.GetText())
+		require.Equal(t, termType, term.GetTermType())
+	}
+
+	query, err := BuildTiCIBooleanQuery(buildMatchAgainst("+a -b c baz*", titleCol), model.FullTextParserTypeStandardV1)
+	require.NoError(t, err)
+	require.NotNil(t, query)
+	require.Len(t, query.Nodes, 4)
+	assertTermNode(query.Nodes[0], tipb.FTSBooleanOccur_FTSBooleanOccurMust, tipb.FTSBooleanModifier_FTSBooleanModifierNone, "a", tipb.FTSBooleanTermType_FTSBooleanTermWord)
+	assertTermNode(query.Nodes[1], tipb.FTSBooleanOccur_FTSBooleanOccurShould, tipb.FTSBooleanModifier_FTSBooleanModifierNone, "c", tipb.FTSBooleanTermType_FTSBooleanTermWord)
+	assertTermNode(query.Nodes[2], tipb.FTSBooleanOccur_FTSBooleanOccurShould, tipb.FTSBooleanModifier_FTSBooleanModifierNone, "baz", tipb.FTSBooleanTermType_FTSBooleanTermPrefix)
+	assertTermNode(query.Nodes[3], tipb.FTSBooleanOccur_FTSBooleanOccurMustNot, tipb.FTSBooleanModifier_FTSBooleanModifierNone, "b", tipb.FTSBooleanTermType_FTSBooleanTermWord)
+
+	grouped, err := BuildTiCIBooleanQuery(buildMatchAgainst(`"foo bar" baz*`, titleCol), model.FullTextParserTypeStandardV1)
+	require.NoError(t, err)
+	require.NotNil(t, grouped)
+	require.Len(t, grouped.Nodes, 2)
+	assertTermNode(grouped.Nodes[0], tipb.FTSBooleanOccur_FTSBooleanOccurShould, tipb.FTSBooleanModifier_FTSBooleanModifierNone, "foo bar", tipb.FTSBooleanTermType_FTSBooleanTermPhrase)
+	assertTermNode(grouped.Nodes[1], tipb.FTSBooleanOccur_FTSBooleanOccurShould, tipb.FTSBooleanModifier_FTSBooleanModifierNone, "baz", tipb.FTSBooleanTermType_FTSBooleanTermPrefix)
 }
 
 // MockExpr is mainly for test.
